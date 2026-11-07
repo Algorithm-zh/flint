@@ -397,6 +397,23 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn copy_text(text: String) -> bool {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.set_text(text))
+        .is_ok()
+}
+
+#[tauri::command]
+async fn run_as_admin(path: String) -> Result<(), String> {
+    launch::run_as_admin(&path)
+}
+
+#[tauri::command]
+async fn open_terminal(path: String) -> Result<(), String> {
+    launch::open_terminal(&path)
+}
+
 /// Bring the palette back to the foreground with focus inside the webview.
 /// Used after a modal file dialog hands focus off to explorer's window.
 #[tauri::command]
@@ -509,6 +526,9 @@ fn main() {
             pick_folder,
             quit,
             refocus,
+            copy_text,
+            run_as_admin,
+            open_terminal,
             get_autostart,
             set_autostart_cmd
         ])

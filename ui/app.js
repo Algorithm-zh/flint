@@ -33,10 +33,11 @@ let lastG = 0;
 const KEYHINTS = {
   insert: `<span><kbd>↑</kbd><kbd>↓</kbd>选择</span>
            <span><kbd>↵</kbd>打开</span>
-           <span><kbd>⌃</kbd><kbd>↵</kbd>所在位置</span>
+           <span><kbd>tab</kbd>动作</span>
            <span><kbd>esc</kbd>普通模式</span>`,
   normal: `<span><kbd>j</kbd><kbd>k</kbd>选择</span>
            <span><kbd>↵</kbd>打开</span>
+           <span><kbd>tab</kbd>动作</span>
            <span><kbd>i</kbd>编辑</span>
            <span><kbd>esc</kbd>收起</span>`,
 };
@@ -100,8 +101,14 @@ const FILE_SVG =
   '<path d="M4 2.4h5.2L12.6 5.8v7.8H4V2.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>' +
   '<path d="M9.1 2.6v3.3h3.3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
 
+const ACTION_SVG =
+  '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">' +
+  '<path d="M5.6 3.4v9.2l7-4.6-7-4.6Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>' +
+  "</svg>";
+
 function glyphOf(h) {
   if (h.kind === "command") return COMMAND_SVG;
+  if (h.kind === "action") return ACTION_SVG;
   if (h.kind === "folder" || h.kind === "bookmark") return FOLDER_SVG;
   if (h.kind === "file") return FILE_SVG;
   return SEG_SVG;
@@ -274,6 +281,102 @@ const COMMANDS = [
 
 let commandMode = false;
 
+/* ---------- action panel ----------
+   Tab on any result expands the things you can do with it. This is where a
+   launcher stops being a list of shortcuts and starts being a command surface. */
+
+let actionMode = false;
+let actionTarget = null;
+let savedHits = null;
+
+function actionsFor(h) {
+  const out = [];
+  const virtual = h.path.startsWith("shell:") || h.path.startsWith("hwnd:");
+
+  if (h.kind === "window") {
+    out.push({
+      name: "切换到此窗口",
+      run: () => invoke("launch", { path: h.path }),
+    });
+    return out;
+  }
+
+  out.push({ name: "打开", run: () => invoke("launch", { path: h.path }) });
+  if (!virtual) {
+    out.push({
+      name: "打开所在位置",
+      run: () => invoke("reveal", { path: h.path }),
+    });
+    out.push({
+      name: "复制路径",
+      run: () => invoke("copy_text", { text: h.path }),
+    });
+  }
+
+  const isExe = h.kind === "app" || /\.(exe|bat|cmd|ps1)$/i.test(h.name);
+  if (isExe && !virtual) {
+    out.push({
+      name: "以管理员身份运行",
+      run: () => invoke("run_as_admin", { path: h.path }),
+    });
+  }
+
+  if (h.kind === "folder" || h.kind === "bookmark") {
+    out.push({
+      name: "在此处打开终端",
+      run: () => invoke("open_terminal", { path: h.path }),
+    });
+  }
+  return out;
+}
+
+function openActions() {
+  if (actionMode) {
+    closeActions();
+    return;
+  }
+  const h = hits[sel];
+  if (!h || h.kind === "command" || h.kind === "action") return;
+
+  const acts = actionsFor(h);
+  if (!acts.length) return;
+
+  actionTarget = h;
+  savedHits = hits;
+  actionMode = true;
+
+  // The panel is navigated with j/k, so the query box must stop eating keys.
+  setMode("normal");
+
+  hits = acts.map((a) => ({
+    name: a.name,
+    hint: "",
+    ext: "ACT",
+    kind: "action",
+    icon_src: "",
+    segs: [{ t: a.name, h: false }],
+    _act: a,
+  }));
+  sel = 0;
+  render();
+  meta(actionTarget.name);
+  $keys.innerHTML = `<span><kbd>j</kbd><kbd>k</kbd>选择</span><span><kbd>↵</kbd>执行</span><span><kbd>esc</kbd>返回</span>`;
+}
+
+function closeActions() {
+  actionMode = false;
+  actionTarget = null;
+  if (savedHits) {
+    hits = savedHits;
+    savedHits = null;
+  }
+  sel = 0;
+  setMode("insert");
+  render();
+  meta("");
+  $keys.innerHTML = KEYHINTS.insert;
+}
+
 function renderCommands(raw) {
   const q = raw.toLowerCase();
   const list = COMMANDS.filter(
@@ -371,6 +474,18 @@ async function activate(revealIt) {
         } catch (_) {}
       }, 80);
     }
+    return;
+  }
+
+  // Actions from the Tab panel.
+  if (h._act) {
+    const act = h._act;
+    dismiss();
+    setTimeout(() => {
+      try {
+        act.run();
+      } catch (_) {}
+    }, 80);
     return;
   }
 
@@ -615,6 +730,12 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
+  if (actionMode && (e.key === "Escape" || e.key === "Tab")) {
+    e.preventDefault();
+    closeActions();
+    return;
+  }
+
   if (mode === "normal") handleNormal(e);
   else handleInsert(e);
 });
@@ -643,9 +764,12 @@ function handleInsert(e) {
 
   switch (e.key) {
     case "ArrowDown":
-    case "Tab":
       e.preventDefault();
       move(1);
+      break;
+    case "Tab":
+      e.preventDefault();
+      openActions();
       break;
     case "ArrowUp":
       e.preventDefault();
@@ -683,9 +807,12 @@ function handleNormal(e) {
   switch (e.key) {
     case "j":
     case "ArrowDown":
-    case "Tab":
       e.preventDefault();
       move(1);
+      break;
+    case "Tab":
+      e.preventDefault();
+      openActions();
       break;
     case "k":
     case "ArrowUp":
@@ -753,6 +880,9 @@ function reset() {
   mode = "insert";
   settingsOpen = false;
   commandMode = false;
+  actionMode = false;
+  actionTarget = null;
+  savedHits = null;
   document.documentElement.dataset.mode = "insert";
   document.documentElement.dataset.view = "search";
   $q.readOnly = false;
