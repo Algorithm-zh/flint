@@ -287,6 +287,27 @@ pub fn search_windows(query: &str, wins: &[crate::windows_list::WinEntry], limit
         .collect()
 }
 
+/// The open windows as hits, unfiltered. This is what the palette shows when
+/// nothing has been typed yet: the most direct answer to "what can I switch to
+/// right now" is the list of what is already on screen.
+pub fn windows_as_hits(wins: &[crate::windows_list::WinEntry], limit: usize) -> Vec<Hit> {
+    wins.iter()
+        .take(limit)
+        .map(|w| Hit {
+            path: format!("hwnd:{}", w.hwnd),
+            name: w.title.clone(),
+            ext: "WIN".into(),
+            kind: "window",
+            hint: w.exe.clone(),
+            icon_src: w.exe_path.clone(),
+            segs: vec![Seg {
+                t: w.title.clone(),
+                h: false,
+            }],
+        })
+        .collect()
+}
+
 /// Turn `(name, match positions)` into alternating plain/highlight runs.
 fn split_segments(name: &str, positions: &[u32]) -> Vec<Seg> {
     if positions.is_empty() {

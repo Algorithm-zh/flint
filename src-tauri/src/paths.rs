@@ -70,6 +70,14 @@ pub struct Settings {
     /// Hand-added shortcuts: a folder plus the keyword that summons it.
     #[serde(default)]
     pub sources: Vec<Source>,
+    /// How INSERT mode hands over to NORMAL mode.
+    /// `"jk"` — type j then k quickly; `"esc"` — press Esc.
+    #[serde(default = "default_keymap")]
+    pub keymap: String,
+}
+
+fn default_keymap() -> String {
+    "jk".to_string()
 }
 
 fn default_budget() -> usize {
@@ -85,6 +93,7 @@ impl Default for Settings {
                 .collect(),
             max_files: default_budget(),
             sources: Vec::new(),
+            keymap: default_keymap(),
         }
     }
 }

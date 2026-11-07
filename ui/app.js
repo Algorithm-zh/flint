@@ -23,24 +23,43 @@ let indexed = false;
 
 /* ---------- vim modes ----------
    INSERT is the default: type to search, arrows to move.
-   Esc (with a non-empty query) drops into NORMAL, where j/k navigate and the
-   input stops accepting characters. Esc again dismisses the palette.
+   Two ways out of it, both configurable:
+
+     "jk"  (default) — type j then k within ~350 ms. Esc stays free for
+                       dismissing the palette, which is what most people
+                       reach for when they want out.
+     "esc"          — Esc drops into NORMAL, a second Esc dismisses.
+
+   NORMAL navigates with j/k, gg/G for the ends, i/a/ slash to edit.
    Ctrl+J / Ctrl+K work in both modes for people who don't want to think
-   about modes at all. */
+   about modes at all, and Ctrl+[ is a permanent Esc alias (Chinese IMEs
+   eat plain Esc to cancel composition). */
 let mode = "insert";
 let lastG = 0;
 
-const KEYHINTS = {
-  insert: `<span><kbd>↑</kbd><kbd>↓</kbd>选择</span>
-           <span><kbd>↵</kbd>打开</span>
-           <span><kbd>tab</kbd>动作</span>
-           <span><kbd>esc</kbd>普通模式</span>`,
-  normal: `<span><kbd>j</kbd><kbd>k</kbd>选择</span>
-           <span><kbd>↵</kbd>打开</span>
-           <span><kbd>tab</kbd>动作</span>
-           <span><kbd>i</kbd>编辑</span>
-           <span><kbd>esc</kbd>收起</span>`,
-};
+/** "jk" | "esc" — mirrors settings.json. */
+let keymap = "jk";
+/** Timestamp of the last bare `j` keypress, for the jk escape. */
+let lastJ = 0;
+const JK_WINDOW = 350;
+
+function keyHints(m) {
+  if (m === "normal") {
+    return `<span><kbd>j</kbd><kbd>k</kbd>选择</span>
+            <span><kbd>↵</kbd>打开</span>
+            <span><kbd>tab</kbd>动作</span>
+            <span><kbd>i</kbd>编辑</span>
+            <span><kbd>esc</kbd>收起</span>`;
+  }
+  const exit =
+    keymap === "jk"
+      ? `<span><kbd>j</kbd><kbd>k</kbd>普通模式</span>`
+      : `<span><kbd>esc</kbd>普通模式</span>`;
+  return `<span><kbd>↑</kbd><kbd>↓</kbd>选择</span>
+          <span><kbd>↵</kbd>打开</span>
+          <span><kbd>tab</kbd>动作</span>
+          ${exit}`;
+}
 
 function setMode(next) {
   if (mode === next) return;
@@ -59,7 +78,7 @@ function setMode(next) {
   }
 
   $mode.textContent = next === "normal" ? "NORMAL" : "INSERT";
-  $keys.innerHTML = KEYHINTS[next];
+  $keys.innerHTML = keyHints(next);
   paintSelection();
 }
 
@@ -374,7 +393,7 @@ function closeActions() {
   setMode("insert");
   render();
   meta("");
-  $keys.innerHTML = KEYHINTS.insert;
+  $keys.innerHTML = keyHints("insert");
 }
 
 function renderCommands(raw) {
@@ -443,6 +462,11 @@ async function run(text) {
         ? "索引为空"
         : "正在建立索引…"
     );
+  } else if (!raw) {
+    // Empty query is a "what's going on right now" view: open windows, then
+    // whatever you reach for most.
+    const wins = res.filter((h) => h.kind === "window").length;
+    meta(wins ? `${wins} 个运行中 · 最近使用` : "最近使用");
   } else {
     const suffix = dt < 1 ? "<1" : dt.toFixed(dt < 10 ? 1 : 0);
     meta(`${res.length} 个结果 · ${suffix} ms`);
@@ -510,6 +534,7 @@ const $addSrc = document.getElementById("add-src");
 const $setSave = document.getElementById("set-save");
 const $setMsg = document.getElementById("set-msg");
 const $setBack = document.getElementById("set-back");
+const $kmSeg = document.getElementById("keymap-seg");
 
 let settingsOpen = false;
 let draft = null;
@@ -527,7 +552,9 @@ async function openSettings() {
       roots: [...(s.roots || [])],
       sources: [...(s.sources || [])],
       max_files: s.max_files || 120000,
+      keymap: s.keymap === "esc" ? "esc" : "jk",
     };
+    keymap = draft.keymap;
   } catch (_) {
     meta("无法读取设置");
     return;
@@ -545,6 +572,10 @@ function closeSettings() {
 }
 
 function renderSettings() {
+  for (const b of $kmSeg.querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.km === draft.keymap));
+  }
+
   $rootRows.replaceChildren();
   draft.roots.forEach((p, i) => {
     const row = document.createElement("div");
@@ -626,6 +657,13 @@ async function pick() {
   return path;
 }
 
+$kmSeg.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-km]");
+  if (!btn || !draft) return;
+  draft.keymap = btn.dataset.km;
+  renderSettings();
+});
+
 $addRoot.addEventListener("click", async () => {
   const p = await pick();
   if (!p) return;
@@ -661,6 +699,7 @@ $setSave.addEventListener("click", async () => {
         roots: draft.roots,
         max_files: draft.max_files,
         sources,
+        keymap: draft.keymap,
       },
     });
   } catch (e) {
@@ -673,6 +712,9 @@ $setSave.addEventListener("click", async () => {
     return;
   }
   setMsg(dropped > 0 ? `已保存（跳过 ${dropped} 条没有关键词）· 重建索引用…` : "已保存，正在重建索引…");
+  // Applies immediately — no restart needed to change how Esc behaves.
+  keymap = draft.keymap === "esc" ? "esc" : "jk";
+  $keys.innerHTML = keyHints(mode);
   setTimeout(closeSettings, 700);
 });
 
@@ -745,9 +787,26 @@ function handleInsert(e) {
   // swallowed by the IME (which uses Esc to cancel composition).
   if (e.ctrlKey && (e.key === "[" || e.key === "【")) {
     e.preventDefault();
-    if ($q.value.trim()) setMode("normal");
-    else dismiss();
+    setMode("normal");
     return;
+  }
+
+  // jk escape. `j` only stamps the clock; `k` decides. Restricted to the end
+  // of the query so editing in the middle never eats a character.
+  if (keymap === "jk" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (e.key === "j") {
+      lastJ = Date.now();
+    } else if (e.key === "k") {
+      const atEnd = $q.selectionStart === $q.value.length;
+      if (atEnd && $q.value.endsWith("j") && Date.now() - lastJ < JK_WINDOW) {
+        e.preventDefault();
+        lastJ = 0;
+        $q.value = $q.value.slice(0, -1);
+        setMode("normal");
+        run($q.value);
+        return;
+      }
+    }
   }
 
   // Mode-free navigation for people who never want to leave insert mode.
@@ -781,8 +840,10 @@ function handleInsert(e) {
       break;
     case "Escape":
       e.preventDefault();
-      // Empty box: Esc means "never mind". Non-empty: switch to navigation.
-      if ($q.value.trim()) setMode("normal");
+      // With the Esc keymap, Esc is a mode switch, never a dismissal — so
+      // closing takes a second press (the one that lands in NORMAL). With jk,
+      // Esc has nothing else to do and closes.
+      if (keymap === "esc") setMode("normal");
       else dismiss();
       break;
   }
@@ -877,6 +938,7 @@ function reset() {
   sel = 0;
   seq++;
   lastG = 0;
+  lastJ = 0;
   mode = "insert";
   settingsOpen = false;
   commandMode = false;
@@ -887,7 +949,7 @@ function reset() {
   document.documentElement.dataset.view = "search";
   $q.readOnly = false;
   $mode.textContent = "INSERT";
-  $keys.innerHTML = KEYHINTS.insert;
+  $keys.innerHTML = keyHints("insert");
   $list.replaceChildren();
   replayIntro();
   // Keep the caret parked in the box: the very first keystroke after summoning
@@ -909,10 +971,20 @@ window.addEventListener("blur", () => {
 window.addEventListener("focus", () => {
   $q.focus();
   if ($q.value.length) $q.select();
+  // Windows may have opened or closed while we were hidden. Rust re-enumerates
+  // just before showing us, so redraw the empty dashboard from fresh data.
+  if (!$q.value.trim() && !settingsOpen && !actionMode && !commandMode) run("");
 });
 
 event.listen("flint:indexed", (e) => {
   onIndexed(Number(e.payload) || 0);
+});
+
+/* Fired after the Rust side has re-enumerated the open windows, so the empty
+   state can show the desktop as it is now rather than as it was last time. */
+event.listen("flint:summoned", () => {
+  if (settingsOpen || actionMode || commandMode) return;
+  if (!$q.value.trim()) run("");
 });
 
 event.listen("flint:open-settings", () => {
@@ -959,4 +1031,13 @@ function onIndexed(n) {
 /* first paint */
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 $q.focus();
+
+/** Pull the mode switch out of settings once, before the first summon. */
+(async function loadKeymap() {
+  try {
+    const s = await invoke("get_settings");
+    keymap = s.keymap === "esc" ? "esc" : "jk";
+    if (mode === "insert") $keys.innerHTML = keyHints("insert");
+  } catch (_) {}
+})();
 reset();

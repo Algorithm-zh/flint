@@ -253,6 +253,11 @@ fn show_palette(app: &AppHandle) {
     }
     let _ = win.set_focus();
     focus_webview(&win);
+
+    // The window list was refreshed above. Tell the UI so an empty query can
+    // redraw "what's open right now" instead of keeping a stale list from
+    // before this summon.
+    let _ = app.emit("flint:summoned", ());
 }
 
 fn toggle_palette(app: &AppHandle) {
@@ -286,6 +291,11 @@ async fn search(
     // Live windows first: switching beats relaunching.
     if !q.trim().is_empty() {
         out.extend(search::search_windows(&q, &wins, 6));
+    } else {
+        // Empty query is a dashboard, not a blank page: everything currently
+        // open, then whatever the user reaches for most often. Windows stop at
+        // six so a busy desktop can't crowd out the recent list entirely.
+        out.extend(search::windows_as_hits(&wins, 6));
     }
 
     let remain = lim.saturating_sub(out.len()).max(1);
