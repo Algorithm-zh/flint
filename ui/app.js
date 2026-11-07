@@ -34,7 +34,7 @@ let indexed = false;
    Ctrl+J / Ctrl+K work in both modes for people who don't want to think
    about modes at all, and Ctrl+[ is a permanent Esc alias (Chinese IMEs
    eat plain Esc to cancel composition). */
-let mode = "insert";
+let mode = "normal";
 let lastG = 0;
 
 /** "jk" | "esc" — mirrors settings.json. */
@@ -48,7 +48,7 @@ function keyHints(m) {
     return `<span><kbd>j</kbd><kbd>k</kbd>选择</span>
             <span><kbd>↵</kbd>打开</span>
             <span><kbd>tab</kbd>动作</span>
-            <span><kbd>i</kbd>编辑</span>
+            <span><kbd>/</kbd>搜索</span>
             <span><kbd>esc</kbd>收起</span>`;
   }
   const exit =
@@ -61,8 +61,8 @@ function keyHints(m) {
           ${exit}`;
 }
 
-function setMode(next) {
-  if (mode === next) return;
+function setMode(next, force = false) {
+  if (mode === next && !force) return;
   mode = next;
   document.documentElement.dataset.mode = next;
 
@@ -390,10 +390,11 @@ function closeActions() {
     savedHits = null;
   }
   sel = 0;
-  setMode("insert");
   render();
+  // Back to NORMAL, not INSERT. The panel was entered from NORMAL and leaving
+  // it should not silently change the mode the user is working in.
+  setMode("normal", true);
   meta("");
-  $keys.innerHTML = keyHints("insert");
 }
 
 function renderCommands(raw) {
@@ -568,7 +569,8 @@ async function openSettings() {
 function closeSettings() {
   settingsOpen = false;
   document.documentElement.dataset.view = "search";
-  $q.focus();
+  // Same as the action panel: coming back to the list leaves you in NORMAL.
+  setMode("normal", true);
 }
 
 function renderSettings() {
@@ -726,6 +728,12 @@ $q.addEventListener("input", () => {
   schedule();
 });
 
+// Clicking the field while in NORMAL is an obvious "I want to edit this" —
+// honour it instead of leaving the box focused and read-only.
+$q.addEventListener("mousedown", () => {
+  if (mode === "normal" && !settingsOpen) setMode("insert");
+});
+
 $q.addEventListener("compositionstart", () => {
   composing = true;
 });
@@ -858,11 +866,67 @@ function handleInsert(e) {
   }
 }
 
+/** Feed a printable keystroke into the query, switching to INSERT first. */
+function startTyping(e) {
+  e.preventDefault();
+  const seed = $q.value + e.key;
+  setMode("insert");
+  $q.value = seed;
+  $q.setSelectionRange(seed.length, seed.length);
+  schedule();
+}
+
+function isPlainKey(e) {
+  return (
+    e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing
+  );
+}
+
 function handleNormal(e) {
   if (e.ctrlKey && e.key === "Enter") {
     e.preventDefault();
     activate(true);
     return;
+  }
+
+  // The action panel is a closed menu: navigate, run, leave. Nothing else,
+  // especially not "start typing a new query" on some stray key.
+  if (actionMode) {
+    switch (e.key) {
+      case "j":
+      case "ArrowDown":
+        e.preventDefault();
+        move(1);
+        break;
+      case "k":
+      case "ArrowUp":
+        e.preventDefault();
+        move(-1);
+        break;
+      case "Enter":
+        e.preventDefault();
+        activate(false);
+        break;
+    }
+    return;
+  }
+
+  // On an empty box there is nothing to edit, so vim commands like `g`, `i`
+  // and `q` would only swallow the first letter of what the user is trying to
+  // search. Anything printable becomes the start of a query instead; j/k keep
+  // navigating the dashboard, `/` explicitly starts a fresh search.
+  if (!actionMode && $q.value.trim() === "" && isPlainKey(e)) {
+    if (e.key === "j" || e.key === "k") {
+      // fall through to the navigation cases below
+    } else if (e.key === "/") {
+      e.preventDefault();
+      $q.value = "";
+      setMode("insert");
+      return;
+    } else {
+      startTyping(e);
+      return;
+    }
   }
 
   switch (e.key) {
@@ -903,14 +967,24 @@ function handleNormal(e) {
       break;
     case "i":
     case "a":
-    case "/":
       e.preventDefault();
       setMode("insert");
+      break;
+    case "/":
+      // vim's search prompt: a fresh query, not an edit of the old one.
+      e.preventDefault();
+      $q.value = "";
+      setMode("insert");
+      run("");
       break;
     case "q":
     case "Escape":
       e.preventDefault();
       dismiss();
+      break;
+    default:
+      // Any other printable key is someone simply starting to type.
+      if (isPlainKey(e)) startTyping(e);
       break;
   }
 }
@@ -939,22 +1013,18 @@ function reset() {
   seq++;
   lastG = 0;
   lastJ = 0;
-  mode = "insert";
   settingsOpen = false;
   commandMode = false;
   actionMode = false;
   actionTarget = null;
   savedHits = null;
-  document.documentElement.dataset.mode = "insert";
   document.documentElement.dataset.view = "search";
-  $q.readOnly = false;
-  $mode.textContent = "INSERT";
-  $keys.innerHTML = keyHints("insert");
   $list.replaceChildren();
   replayIntro();
-  // Keep the caret parked in the box: the very first keystroke after summoning
-  // must land in the query, not nowhere.
-  $q.focus();
+  // Every summon starts in NORMAL, like a fresh vim buffer. Typing a printable
+  // key drops into INSERT on its own, so "just start typing" still works —
+  // see the default arm in handleNormal.
+  setMode("normal", true);
   run("");
   if (!indexed) pollIndex();
 }
@@ -969,8 +1039,12 @@ window.addEventListener("blur", () => {
 });
 
 window.addEventListener("focus", () => {
-  $q.focus();
-  if ($q.value.length) $q.select();
+  // NORMAL keeps the box blurred on purpose — focusing it would let the IME
+  // attach and swallow keystrokes that belong to the keymap.
+  if (mode === "insert") {
+    $q.focus();
+    if ($q.value.length) $q.select();
+  }
   // Windows may have opened or closed while we were hidden. Rust re-enumerates
   // just before showing us, so redraw the empty dashboard from fresh data.
   if (!$q.value.trim() && !settingsOpen && !actionMode && !commandMode) run("");
@@ -1030,7 +1104,6 @@ function onIndexed(n) {
 
 /* first paint */
 document.addEventListener("contextmenu", (e) => e.preventDefault());
-$q.focus();
 
 /** Pull the mode switch out of settings once, before the first summon. */
 (async function loadKeymap() {
