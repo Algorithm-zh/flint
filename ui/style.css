@@ -373,6 +373,67 @@ body {
   letter-spacing: 0.01em;
 }
 
+.foot .left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Vim mode chip */
+.mode {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--badge-bg);
+  color: var(--fg-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1.25;
+  transition: color 90ms linear, background-color 90ms linear;
+}
+
+:root[data-mode="normal"] .mode {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* In normal mode the whole frame hints at it, the way a vim statusline does. */
+:root[data-mode="normal"] .frame {
+  border-color: var(--accent-soft);
+  box-shadow: var(--shadow), var(--inset), 0 0 0 1px var(--accent-soft);
+}
+
+:root[data-mode="normal"] .bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent) 12%,
+    var(--accent) 88%,
+    transparent
+  );
+  opacity: 0.55;
+}
+
+/* Selection is louder in normal mode — you are navigating, not typing. */
+:root[data-mode="normal"] .row.sel {
+  background: var(--row);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}
+
+:root[data-mode="normal"] .row.sel::before {
+  top: 9px;
+  bottom: 9px;
+  width: 2.5px;
+}
+
 .meta {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

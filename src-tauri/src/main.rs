@@ -238,21 +238,6 @@ fn show_palette(app: &AppHandle) {
     }
     let _ = win.set_focus();
     focus_webview(&win);
-
-    // Windows sometimes hands focus back after the window settles; a second,
-    // later nudge catches that case without racing the initial paint.
-    let app2 = app.clone();
-    let app3 = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(120));
-        let _ = app2.run_on_main_thread(move || {
-            if let Some(w) = app3.get_webview_window("main") {
-                if w.is_visible().unwrap_or(false) {
-                    focus_webview(&w);
-                }
-            }
-        });
-    });
 }
 
 fn toggle_palette(app: &AppHandle) {
@@ -488,39 +473,15 @@ fn main() {
 
             Ok(())
         })
-        .on_window_event(|window, event| match event {
-            // Any time the window becomes foreground — hotkey, tray, alt-tab —
-            // focus has to end up inside the webview or the user's first
-            // keystroke is swallowed.
-            //
-            // Two hazards, both handled here:
-            //  * calling into the controller while the view is still being
-            //    created blanks it, so the call is deferred;
-            //  * MoveFocus itself re-raises this event, so without the
-            //    debounce below it loops forever and the caret never settles.
-            WindowEvent::Focused(true) => {
-                static LAST: AtomicU64 = AtomicU64::new(0);
-                let now = now_ms();
-                if now.saturating_sub(LAST.load(Ordering::Relaxed)) < 800 {
-                    return;
-                }
-                LAST.store(now, Ordering::Relaxed);
-
-                let app = window.app_handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(60));
-                    let inner = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        if let Some(w) = inner.get_webview_window("main") {
-                            if w.is_visible().unwrap_or(false) {
-                                focus_webview(&w);
-                            }
-                        }
-                    });
-                });
-            }
+        .on_window_event(|window, event| {
             // Clicking away dismisses the palette, like any good launcher.
-            WindowEvent::Focused(false) => {
+            //
+            // Note: there is deliberately no Focused(true) handler here. Calling
+            // MoveFocus from it re-raises the same event (infinite loop) and, even
+            // debounced, it steals foreground back from the window that just
+            // received it. Focus is moved once, in `show_palette`, where we know
+            // the window has just been raised.
+            if let WindowEvent::Focused(false) = event {
                 static PINNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
                 if *PINNED.get_or_init(|| std::env::var_os("FLINT_PIN").is_some()) {
                     return;
@@ -533,7 +494,6 @@ fn main() {
                 }
                 let _ = window.hide();
             }
-            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("failed to start Flint");

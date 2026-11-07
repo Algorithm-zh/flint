@@ -12,12 +12,59 @@ const $q = document.getElementById("q");
 const $list = document.getElementById("list");
 const $meta = document.getElementById("meta");
 const $frame = document.getElementById("frame");
+const $mode = document.getElementById("mode");
+const $keys = document.getElementById("keys");
 
 let hits = [];
 let sel = 0;
 let seq = 0;
 let composing = false;
 let indexed = false;
+
+/* ---------- vim modes ----------
+   INSERT is the default: type to search, arrows to move.
+   Esc (with a non-empty query) drops into NORMAL, where j/k navigate and the
+   input stops accepting characters. Esc again dismisses the palette.
+   Ctrl+J / Ctrl+K work in both modes for people who don't want to think
+   about modes at all. */
+let mode = "insert";
+let lastG = 0;
+
+const KEYHINTS = {
+  insert: `<span><kbd>↑</kbd><kbd>↓</kbd>选择</span>
+           <span><kbd>↵</kbd>打开</span>
+           <span><kbd>⌃</kbd><kbd>↵</kbd>所在位置</span>
+           <span><kbd>esc</kbd>普通模式</span>`,
+  normal: `<span><kbd>j</kbd><kbd>k</kbd>选择</span>
+           <span><kbd>↵</kbd>打开</span>
+           <span><kbd>i</kbd>编辑</span>
+           <span><kbd>esc</kbd>收起</span>`,
+};
+
+function setMode(next) {
+  if (mode === next) return;
+  mode = next;
+  document.documentElement.dataset.mode = next;
+
+  if (next === "normal") {
+    $q.readOnly = true;
+    $q.blur();
+  } else {
+    $q.readOnly = false;
+    $q.focus();
+    const v = $q.value;
+    $q.value = "";
+    $q.value = v; // caret to end
+  }
+
+  $mode.textContent = next === "normal" ? "NORMAL" : "INSERT";
+  $keys.innerHTML = KEYHINTS[next];
+  paintSelection();
+}
+
+function dismiss() {
+  invoke("dismiss").catch(() => {});
+}
 
 /* icon source -> data URL */
 const iconCache = new Map();
@@ -229,7 +276,7 @@ async function activate(revealIt) {
   if (!h) return;
   // Hide first: the palette vanishing before the target window appears feels
   // instantaneous, while hiding after it feels sluggish.
-  invoke("dismiss").catch(() => {});
+  dismiss();
   try {
     await invoke(revealIt ? "reveal" : "launch", { path: h.path });
   } catch (e) {
@@ -271,6 +318,31 @@ $list.addEventListener("mousedown", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.isComposing) return;
+  if (mode === "normal") handleNormal(e);
+  else handleInsert(e);
+});
+
+function handleInsert(e) {
+  // Ctrl+[ is the vim-standard alias for Esc, and unlike Esc it never gets
+  // swallowed by the IME (which uses Esc to cancel composition).
+  if (e.ctrlKey && (e.key === "[" || e.key === "【")) {
+    e.preventDefault();
+    if ($q.value.trim()) setMode("normal");
+    else dismiss();
+    return;
+  }
+
+  // Mode-free navigation for people who never want to leave insert mode.
+  if (e.ctrlKey && (e.key === "j" || e.key === "J")) {
+    e.preventDefault();
+    move(1);
+    return;
+  }
+  if (e.ctrlKey && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    move(-1);
+    return;
+  }
 
   switch (e.key) {
     case "ArrowDown":
@@ -288,7 +360,9 @@ document.addEventListener("keydown", (e) => {
       break;
     case "Escape":
       e.preventDefault();
-      invoke("dismiss").catch(() => {});
+      // Empty box: Esc means "never mind". Non-empty: switch to navigation.
+      if ($q.value.trim()) setMode("normal");
+      else dismiss();
       break;
   }
 
@@ -300,7 +374,61 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     move(-1);
   }
-});
+}
+
+function handleNormal(e) {
+  if (e.ctrlKey && e.key === "Enter") {
+    e.preventDefault();
+    activate(true);
+    return;
+  }
+
+  switch (e.key) {
+    case "j":
+    case "ArrowDown":
+    case "Tab":
+      e.preventDefault();
+      move(1);
+      break;
+    case "k":
+    case "ArrowUp":
+      e.preventDefault();
+      move(-1);
+      break;
+    case "g": {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastG < 500) {
+        sel = 0;
+        paintSelection();
+        lastG = 0;
+      } else {
+        lastG = now;
+      }
+      break;
+    }
+    case "G":
+      e.preventDefault();
+      sel = Math.max(0, hits.length - 1);
+      paintSelection();
+      break;
+    case "Enter":
+      e.preventDefault();
+      activate(false);
+      break;
+    case "i":
+    case "a":
+    case "/":
+      e.preventDefault();
+      setMode("insert");
+      break;
+    case "q":
+    case "Escape":
+      e.preventDefault();
+      dismiss();
+      break;
+  }
+}
 
 /* ---------- theme ---------- */
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -324,6 +452,12 @@ function reset() {
   hits = [];
   sel = 0;
   seq++;
+  lastG = 0;
+  mode = "insert";
+  document.documentElement.dataset.mode = "insert";
+  $q.readOnly = false;
+  $mode.textContent = "INSERT";
+  $keys.innerHTML = KEYHINTS.insert;
   $list.replaceChildren();
   replayIntro();
   // Keep the caret parked in the box: the very first keystroke after summoning
