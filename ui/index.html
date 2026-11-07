@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flint</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="frame" id="frame">
+    <header class="bar">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M14.4 2.2 5.6 13.1c-.4.5 0 1.2.6 1.2h3.6l-1.6 7.2c-.1.6.6 1 1 .5l8.9-11c.4-.5 0-1.2-.6-1.2h-3.6l1.5-7.1c.1-.6-.6-1-1-.5Z" fill="currentColor"/>
+        </svg>
+      </div>
+      <input id="q" type="text" spellcheck="false" autocomplete="off" autocorrect="off"
+             placeholder="搜索应用、文件或文件夹" />
+    </header>
+
+    <main class="list" id="list" role="listbox"></main>
+
+    <footer class="foot">
+      <span class="meta" id="meta">正在建立索引…</span>
+      <span class="keys">
+        <span><kbd>↑</kbd><kbd>↓</kbd>选择</span>
+        <span><kbd>↵</kbd>打开</span>
+        <span><kbd>⌃</kbd><kbd>↵</kbd>所在位置</span>
+        <span><kbd>esc</kbd>收起</span>
+      </span>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

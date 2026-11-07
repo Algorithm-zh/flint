@@ -1,0 +1,12 @@
+# Project-local source override: the global config uses the git-protocol
+# crates.io mirror, which is far too slow to bootstrap a Tauri dependency tree.
+# Sparse HTTP is a single manifest fetch per crate.
+[source.crates-io]
+replace-with = "tuna-sparse"
+
+[source.tuna-sparse]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+
+[net]
+git-fetch-with-cli = true
+retry = 3
