@@ -210,6 +210,50 @@ pub fn default_roots() -> Vec<PathBuf> {
     v
 }
 
+/// Turn hand-added folders into first-class entries: the keyword is the alias,
+/// so typing it lands on the folder without depending on any file inside it.
+pub fn build_bookmarks(sources: &[crate::paths::Source]) -> Vec<Entry> {
+    let mut out = Vec::with_capacity(sources.len());
+    for s in sources {
+        let path = Path::new(&s.path);
+        if !path.is_dir() {
+            continue;
+        }
+        let fallback = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&s.path)
+            .to_string();
+        let name = if s.label.trim().is_empty() {
+            fallback
+        } else {
+            s.label.trim().to_string()
+        };
+
+        // The keyword is what you type; the label is what you read. Both should
+        // hit, plus the pinyin of a Chinese label.
+        let mut alias = s.keyword.trim().to_lowercase();
+        let py = pinyin_alias(&name);
+        if !py.is_empty() {
+            if !alias.is_empty() {
+                alias.push(' ');
+            }
+            alias.push_str(&py);
+        }
+
+        out.push(Entry {
+            name,
+            alias,
+            path: win_path(path),
+            icon_src: win_path(path),
+            kind: Kind::Bookmark,
+            ext: "快捷".into(),
+            hint: paths::shorten(&win_path(path)),
+        });
+    }
+    out
+}
+
 /// Applications only — start-menu shortcuts plus everything the shell knows
 /// about. Fast enough to run before the user notices.
 pub fn build_apps() -> Vec<Entry> {
@@ -242,8 +286,9 @@ pub fn build_files(roots: &[PathBuf], budget: usize, out: &mut Vec<Entry>) {
 
 /// Build the full entry list from every source.
 #[allow(dead_code)]
-pub fn build_all(roots: &[PathBuf], max_files: usize) -> Vec<Entry> {
-    let mut out = build_apps();
+pub fn build_all(roots: &[PathBuf], sources: &[crate::paths::Source], max_files: usize) -> Vec<Entry> {
+    let mut out = build_bookmarks(sources);
+    out.extend(build_apps());
     build_files(roots, max_files, &mut out);
     out
 }

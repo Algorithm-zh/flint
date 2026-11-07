@@ -84,21 +84,26 @@ const SEG_SVG =
   '<path d="M6.1 2.6h3.8c2.2 0 3.5 1.2 3.5 3.4s-1.3 3.4-3.5 3.4H8v4h-1.9V2.6Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>' +
   "</svg>";
 
+const COMMAND_SVG =
+  '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">' +
+  '<path d="M4 5.2 7 8l-3 2.8" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>' +
+  '<path d="M8.4 11.4h3.6" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>' +
+  "</svg>";
+
+const FOLDER_SVG =
+  '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">' +
+  '<path d="M2.1 4.4c0-.6.5-1.1 1.1-1.1h2.6l1.4 1.5h5.6c.6 0 1.1.5 1.1 1.1v5.7c0 .6-.5 1.1-1.1 1.1H3.2c-.6 0-1.1-.5-1.1-1.1V4.4Z" ' +
+  'stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+
+const FILE_SVG =
+  '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">' +
+  '<path d="M4 2.4h5.2L12.6 5.8v7.8H4V2.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>' +
+  '<path d="M9.1 2.6v3.3h3.3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+
 function glyphOf(h) {
-  if (h.kind === "folder") {
-    return (
-      '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">' +
-      '<path d="M2.1 4.4c0-.6.5-1.1 1.1-1.1h2.6l1.4 1.5h5.6c.6 0 1.1.5 1.1 1.1v5.7c0 .6-.5 1.1-1.1 1.1H3.2c-.6 0-1.1-.5-1.1-1.1V4.4Z" ' +
-      'stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>'
-    );
-  }
-  if (h.kind === "file") {
-    return (
-      '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">' +
-      '<path d="M4 2.4h5.2L12.6 5.8v7.8H4V2.4Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>' +
-      '<path d="M9.1 2.6v3.3h3.3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>'
-    );
-  }
+  if (h.kind === "command") return COMMAND_SVG;
+  if (h.kind === "folder" || h.kind === "bookmark") return FOLDER_SVG;
+  if (h.kind === "file") return FILE_SVG;
   return SEG_SVG;
 }
 
@@ -225,6 +230,70 @@ async function loadIcons() {
   }
 }
 
+/* ---------- built-in commands ----------
+   Reachable by typing `>` — a discoverable surface for actions that have no
+   business being a global hotkey. */
+
+const COMMANDS = [
+  {
+    id: "settings",
+    name: "设置",
+    desc: "索引目录与快捷路径",
+    keepOpen: true,
+    run: () => openSettings(),
+  },
+  {
+    id: "reindex",
+    name: "重建索引",
+    desc: "重新扫描所有索引目录",
+    keepOpen: true,
+    run: () => {
+      invoke("reindex");
+      meta("正在重建索引…");
+    },
+  },
+  {
+    id: "autostart",
+    name: "开机自启",
+    desc: "切换开机自动启动",
+    keepOpen: true,
+    run: async () => {
+      const on = await invoke("get_autostart");
+      const next = !on;
+      await invoke("set_autostart_cmd", { enable: next });
+      meta(next ? "已设为开机自动启动" : "已取消开机自动启动");
+    },
+  },
+  {
+    id: "quit",
+    name: "退出 Flint",
+    desc: "关闭后台进程",
+    run: () => invoke("quit"),
+  },
+];
+
+let commandMode = false;
+
+function renderCommands(raw) {
+  const q = raw.toLowerCase();
+  const list = COMMANDS.filter(
+    (c) => !q || c.name.toLowerCase().includes(q) || c.id.includes(q)
+  );
+
+  hits = list.map((c) => ({
+    name: c.name,
+    hint: c.desc,
+    ext: "CMD",
+    kind: "command",
+    icon_src: "",
+    segs: [{ t: c.name, h: false }],
+    _cmd: c,
+  }));
+  sel = 0;
+  render();
+  meta(list.length ? `${list.length} 个命令` : "没有匹配的命令");
+}
+
 /* ---------- search ---------- */
 let rafPending = null;
 
@@ -237,6 +306,16 @@ function schedule() {
 }
 
 async function run(text) {
+  const raw = text.trim();
+
+  // `>` prefix switches to command mode — no IPC, purely local.
+  if (raw.startsWith(">")) {
+    commandMode = true;
+    renderCommands(raw.slice(1).trim());
+    return;
+  }
+  commandMode = false;
+
   const mine = ++seq;
   const t0 = performance.now();
   let res;
@@ -275,6 +354,26 @@ function meta(t) {
 async function activate(revealIt) {
   const h = hits[sel];
   if (!h) return;
+
+  // Commands are handled locally, not by the shell.
+  if (h._cmd) {
+    const cmd = h._cmd;
+    if (cmd.keepOpen) {
+      // Settings, reindex, autostart: the palette stays up to show the result.
+      try {
+        cmd.run();
+      } catch (_) {}
+    } else {
+      dismiss();
+      setTimeout(() => {
+        try {
+          cmd.run();
+        } catch (_) {}
+      }, 80);
+    }
+    return;
+  }
+
   // Hide first: the palette vanishing before the target window appears feels
   // instantaneous, while hiding after it feels sluggish.
   dismiss();
@@ -284,6 +383,185 @@ async function activate(revealIt) {
     meta("打开失败：" + e);
   }
 }
+
+/* ---------- settings ----------
+   The settings view reuses the same window: the search chrome is hidden by a
+   data-view attribute rather than being torn down, so returning is instant. */
+
+const $rootRows = document.getElementById("root-rows");
+const $srcRows = document.getElementById("src-rows");
+const $addRoot = document.getElementById("add-root");
+const $addSrc = document.getElementById("add-src");
+const $setSave = document.getElementById("set-save");
+const $setMsg = document.getElementById("set-msg");
+const $setBack = document.getElementById("set-back");
+
+let settingsOpen = false;
+let draft = null;
+let suppressBlurReset = false;
+
+function setMsg(t) {
+  $setMsg.textContent = t;
+}
+
+async function openSettings() {
+  setMode("insert");
+  try {
+    const s = await invoke("get_settings");
+    draft = {
+      roots: [...(s.roots || [])],
+      sources: [...(s.sources || [])],
+      max_files: s.max_files || 120000,
+    };
+  } catch (_) {
+    meta("无法读取设置");
+    return;
+  }
+  settingsOpen = true;
+  document.documentElement.dataset.view = "settings";
+  renderSettings();
+  setMsg("");
+}
+
+function closeSettings() {
+  settingsOpen = false;
+  document.documentElement.dataset.view = "search";
+  $q.focus();
+}
+
+function renderSettings() {
+  $rootRows.replaceChildren();
+  draft.roots.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "srow";
+
+    const path = document.createElement("span");
+    path.className = "spath";
+    path.textContent = p;
+    path.title = p;
+
+    const del = document.createElement("button");
+    del.className = "del";
+    del.textContent = "×";
+    del.title = "移除";
+    del.addEventListener("click", () => {
+      draft.roots.splice(i, 1);
+      renderSettings();
+    });
+
+    row.append(path, del);
+    $rootRows.append(row);
+  });
+
+  $srcRows.replaceChildren();
+  draft.sources.forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "srow";
+
+    const key = document.createElement("input");
+    key.className = "skey";
+    key.placeholder = "关键词";
+    key.value = s.keyword || "";
+    key.spellcheck = false;
+    key.addEventListener("input", () => {
+      s.keyword = key.value.trim().toLowerCase();
+    });
+
+    const path = document.createElement("span");
+    path.className = "spath";
+    path.textContent = s.path;
+    path.title = s.path;
+
+    const del = document.createElement("button");
+    del.className = "del";
+    del.textContent = "×";
+    del.title = "移除";
+    del.addEventListener("click", () => {
+      draft.sources.splice(i, 1);
+      renderSettings();
+    });
+
+    row.append(key, path, del);
+    $srcRows.append(row);
+  });
+}
+
+async function pick() {
+  // A native folder dialog is its own top-level window, so the palette loses
+  // focus while it's up. Suppress the blur-driven reset from the moment the
+  // dialog opens until well after focus has been handed back.
+  suppressBlurReset = true;
+  let path = null;
+  try {
+    path = await invoke("pick_folder");
+  } catch (e) {
+    setMsg("打开选择器失败：" + e);
+  } finally {
+    setTimeout(async () => {
+      try {
+        await invoke("refocus");
+      } catch (_) {}
+      // Hold the suppression a little longer: refocus itself causes one more
+      // focus transition, and a reset there would wipe the panel mid-edit.
+      setTimeout(() => {
+        suppressBlurReset = false;
+      }, 320);
+    }, 60);
+  }
+  return path;
+}
+
+$addRoot.addEventListener("click", async () => {
+  const p = await pick();
+  if (!p) return;
+  if (!draft.roots.includes(p)) draft.roots.push(p);
+  renderSettings();
+});
+
+$addSrc.addEventListener("click", async () => {
+  const p = await pick();
+  if (!p) return;
+  if (draft.sources.some((s) => s.path === p)) {
+    setMsg("这个路径已经在列表里了");
+    return;
+  }
+  draft.sources.push({ path: p, keyword: "", label: "" });
+  renderSettings();
+  setMsg("给它起个关键词，之后输入就能直达");
+  const last = $srcRows.lastElementChild;
+  const box = last && last.querySelector(".skey");
+  if (box) box.focus();
+});
+
+$setSave.addEventListener("click", async () => {
+  // A shortcut without a keyword is unreachable — skip those quietly.
+  const sources = draft.sources.filter((s) => (s.keyword || "").trim());
+  const dropped = draft.sources.length - sources.length;
+
+  setMsg("保存中…");
+  let ok = false;
+  try {
+    ok = await invoke("save_settings", {
+      settings: {
+        roots: draft.roots,
+        max_files: draft.max_files,
+        sources,
+      },
+    });
+  } catch (e) {
+    setMsg("保存失败：" + e);
+    return;
+  }
+
+  if (!ok) {
+    setMsg("保存失败");
+    return;
+  }
+  setMsg(dropped > 0 ? `已保存（跳过 ${dropped} 条没有关键词）· 重建索引用…` : "已保存，正在重建索引…");
+  setTimeout(closeSettings, 700);
+});
+
+$setBack.addEventListener("click", closeSettings);
 
 /* ---------- events ---------- */
 $q.addEventListener("input", () => {
@@ -319,6 +597,24 @@ $list.addEventListener("mousedown", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.isComposing) return;
+
+  // Settings view owns the keyboard while it's up; only Esc gets through.
+  if (settingsOpen) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeSettings();
+    }
+    return;
+  }
+
+  // Ctrl+, opens settings. `e.code` is checked too because with a Chinese IME
+  // active `e.key` can come through as the full-width comma or "Process".
+  if (e.ctrlKey && (e.key === "," || e.key === "，" || e.code === "Comma")) {
+    e.preventDefault();
+    openSettings();
+    return;
+  }
+
   if (mode === "normal") handleNormal(e);
   else handleInsert(e);
 });
@@ -455,7 +751,10 @@ function reset() {
   seq++;
   lastG = 0;
   mode = "insert";
+  settingsOpen = false;
+  commandMode = false;
   document.documentElement.dataset.mode = "insert";
+  document.documentElement.dataset.view = "search";
   $q.readOnly = false;
   $mode.textContent = "INSERT";
   $keys.innerHTML = KEYHINTS.insert;
@@ -472,6 +771,7 @@ window.addEventListener("blur", () => {
   // Window is about to be hidden — clear the deck for the next summon.
   // The delay lets a transient focus flicker settle before we wipe the query.
   setTimeout(() => {
+    if (suppressBlurReset) return;
     if (!document.hasFocus()) reset();
   }, 90);
 });
@@ -483,6 +783,14 @@ window.addEventListener("focus", () => {
 
 event.listen("flint:indexed", (e) => {
   onIndexed(Number(e.payload) || 0);
+});
+
+event.listen("flint:open-settings", () => {
+  // Let the summon settle first, otherwise the blur-driven reset that runs on
+  // hide can land after us and close the panel again.
+  setTimeout(() => {
+    if (!settingsOpen) openSettings();
+  }, 160);
 });
 
 /* Belt and braces: events can land before the listener is attached, so the UI

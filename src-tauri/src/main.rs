@@ -37,6 +37,9 @@ pub struct AppState {
     building: AtomicBool,
     /// Live window list, refreshed every time the palette is summoned.
     wins: RwLock<Vec<windows_list::WinEntry>>,
+    /// True while a native folder picker is up. The palette loses focus to it,
+    /// and must not treat that as "clicked away".
+    dialog_open: AtomicBool,
     /// Timestamp (ms) of the last time we summoned the palette. Used to ignore
     /// the focus-lost event that Windows fires while the window is still
     /// settling, which would otherwise hide it the instant it appears.
@@ -159,10 +162,11 @@ fn spawn_index_build(app: AppHandle) {
         let settings = paths::load_settings();
         let roots = settings.root_paths();
 
-        // --- phase 1: apps ------------------------------------------------
+        // --- phase 1: bookmarks + apps -----------------------------------
         // Available in well under a second, so the user can launch something
         // long before the disk walk finishes.
-        let apps = index::build_apps();
+        let mut apps = index::build_bookmarks(&settings.sources);
+        apps.extend(index::build_apps());
         {
             let st = app.state::<AppState>();
             let freq = counts(&st.freq.read());
@@ -358,6 +362,66 @@ fn stats(state: State<'_, AppState>) -> serde_json::Value {
 }
 
 /* ------------------------------------------------------------------ */
+/* settings                                                           */
+/* ------------------------------------------------------------------ */
+
+#[tauri::command]
+fn get_settings() -> paths::Settings {
+    paths::load_settings()
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: paths::Settings) -> bool {
+    if !paths::write_settings(&settings) {
+        return false;
+    }
+    // Roots may have changed, so the index has to be rebuilt.
+    spawn_index_build(app);
+    true
+}
+
+#[tauri::command]
+async fn pick_folder(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    state.dialog_open.store(true, Ordering::SeqCst);
+    let picked = rfd::AsyncFileDialog::new()
+        .set_title("选择要索引的文件夹")
+        .pick_folder()
+        .await
+        .map(|h| h.path().to_string_lossy().to_string());
+    state.dialog_open.store(false, Ordering::SeqCst);
+    Ok(picked)
+}
+
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
+/// Bring the palette back to the foreground with focus inside the webview.
+/// Used after a modal file dialog hands focus off to explorer's window.
+#[tauri::command]
+fn refocus(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        if let Ok(h) = w.hwnd() {
+            platform::force_foreground(h.0 as isize);
+        }
+        let _ = w.set_focus();
+        focus_webview(&w);
+    }
+}
+
+#[tauri::command]
+fn set_autostart_cmd(enable: bool) -> bool {
+    set_autostart(enable)
+}
+
+#[tauri::command]
+fn get_autostart() -> bool {
+    is_autostart()
+}
+
+/* ------------------------------------------------------------------ */
 /* autostart                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -414,6 +478,7 @@ fn main() {
         freq: RwLock::new(load_freq()),
         building: AtomicBool::new(false),
         wins: RwLock::new(Vec::new()),
+        dialog_open: AtomicBool::new(false),
         last_show: AtomicU64::new(0),
     };
 
@@ -432,7 +497,20 @@ fn main() {
         )
         .manage(state)
         .invoke_handler(tauri::generate_handler![
-            search, launch, reveal, dismiss, icons, reindex, stats
+            search,
+            launch,
+            reveal,
+            dismiss,
+            icons,
+            reindex,
+            stats,
+            get_settings,
+            save_settings,
+            pick_folder,
+            quit,
+            refocus,
+            get_autostart,
+            set_autostart_cmd
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -451,6 +529,7 @@ fn main() {
 
             // --- tray -----------------------------------------------------
             let show_i = MenuItem::with_id(app, "show", "打开 Flint", true, None::<&str>)?;
+            let set_i = MenuItem::with_id(app, "settings", "设置…", true, None::<&str>)?;
             let auto_i = CheckMenuItem::with_id(
                 app,
                 "autostart",
@@ -461,7 +540,7 @@ fn main() {
             )?;
             let re_i = MenuItem::with_id(app, "reindex", "重建索引", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &auto_i, &re_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &set_i, &auto_i, &re_i, &quit_i])?;
 
             let auto_handle = auto_i.clone();
             let mut tray = TrayIconBuilder::with_id("flint-tray")
@@ -470,6 +549,10 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, ev| match ev.id.as_ref() {
                     "show" => show_palette(app),
+                    "settings" => {
+                        show_palette(app);
+                        let _ = app.emit("flint:open-settings", ());
+                    }
                     "autostart" => {
                         let next = !is_autostart();
                         if set_autostart(next) {
@@ -533,6 +616,11 @@ fn main() {
                     return;
                 }
                 let state = window.app_handle().state::<AppState>();
+                // A folder picker is a separate window and will take focus; that
+                // isn't the user dismissing the palette.
+                if state.dialog_open.load(Ordering::Relaxed) {
+                    return;
+                }
                 // Ignore the focus churn that happens while the window is
                 // still being shown / gaining foreground rights.
                 if now_ms().saturating_sub(state.last_show.load(Ordering::Relaxed)) < 400 {

@@ -48,6 +48,18 @@ pub fn shorten(p: &str) -> String {
 /* settings                                                           */
 /* ------------------------------------------------------------------ */
 
+/// A folder the user added by hand, reachable by typing its keyword.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct Source {
+    pub path: String,
+    /// What you type to jump straight here.
+    #[serde(default)]
+    pub keyword: String,
+    /// Display name; falls back to the folder name.
+    #[serde(default)]
+    pub label: String,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct Settings {
     /// Folders to walk for files. Empty means "use the defaults".
@@ -55,6 +67,9 @@ pub struct Settings {
     pub roots: Vec<String>,
     #[serde(default = "default_budget")]
     pub max_files: usize,
+    /// Hand-added shortcuts: a folder plus the keyword that summons it.
+    #[serde(default)]
+    pub sources: Vec<Source>,
 }
 
 fn default_budget() -> usize {
@@ -69,18 +84,29 @@ impl Default for Settings {
                 .map(|p| p.to_string_lossy().to_string())
                 .collect(),
             max_files: default_budget(),
+            sources: Vec::new(),
         }
     }
 }
 
 impl Settings {
     pub fn root_paths(&self) -> Vec<PathBuf> {
-        let v: Vec<PathBuf> = self
+        let mut v: Vec<PathBuf> = self
             .roots
             .iter()
-            .map(|s| PathBuf::from(s))
+            .map(PathBuf::from)
             .filter(|p| p.is_dir())
             .collect();
+
+        // Hand-added sources are indexed too — that's the whole point of
+        // adding them; the keyword is just a shortcut on top.
+        for s in &self.sources {
+            let p = PathBuf::from(&s.path);
+            if p.is_dir() && !v.iter().any(|x| x == &p) {
+                v.push(p);
+            }
+        }
+
         if v.is_empty() {
             crate::index::default_roots()
         } else {
@@ -101,4 +127,11 @@ pub fn load_settings() -> Settings {
         let _ = std::fs::write(&f, s);
     }
     def
+}
+
+pub fn write_settings(s: &Settings) -> bool {
+    match serde_json::to_string_pretty(s) {
+        Ok(body) => std::fs::write(settings_file(), body).is_ok(),
+        Err(_) => false,
+    }
 }

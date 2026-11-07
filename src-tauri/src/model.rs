@@ -9,6 +9,8 @@ pub enum Kind {
     /// A window that is already on screen. Selecting it switches to it instead
     /// of launching anything.
     Window,
+    /// A folder the user added by hand, summoned by its keyword.
+    Bookmark,
 }
 
 impl Kind {
@@ -18,16 +20,19 @@ impl Kind {
             Kind::File => "file",
             Kind::Folder => "folder",
             Kind::Window => "window",
+            Kind::Bookmark => "bookmark",
         }
     }
 
     /// Ranking bias. Windows come first — if something is already running, the
     /// user almost certainly wants to switch to it instead of starting a
-    /// second copy. Files sit below zero on purpose: with thousands of them in
-    /// the index, an equal-scoring file would crowd out what the user meant.
+    /// second copy. Bookmarks next: they exist because the user asked for
+    /// them. Files sit below zero on purpose: with thousands of them in the
+    /// index, an equal-scoring file would crowd out what the user meant.
     pub fn bias(self) -> i64 {
         match self {
             Kind::Window => 4000,
+            Kind::Bookmark => 1800,
             Kind::App => 260,
             Kind::Folder => -900,
             Kind::File => -2500,

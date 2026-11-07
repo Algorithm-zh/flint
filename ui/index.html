@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="dark" data-view="search" data-mode="insert">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -32,6 +32,33 @@
         <span><kbd>esc</kbd>收起</span>
       </span>
     </footer>
+
+    <section class="settings" id="settings">
+      <header class="set-head">
+        <button class="ghost" id="set-back" title="返回搜索">←</button>
+        <span class="set-title">设置</span>
+        <span class="set-esc">esc 返回</span>
+      </header>
+
+      <div class="set-body">
+        <section class="grp">
+          <h3>索引目录<span>这些目录下的文件会被搜到</span></h3>
+          <div class="rows" id="root-rows"></div>
+          <button class="add" id="add-root">+ 添加目录</button>
+        </section>
+
+        <section class="grp">
+          <h3>快捷路径<span>输入关键词直接跳到这个文件夹</span></h3>
+          <div class="rows" id="src-rows"></div>
+          <button class="add" id="add-src">+ 添加快捷路径</button>
+        </section>
+      </div>
+
+      <footer class="set-foot">
+        <span class="set-msg" id="set-msg"></span>
+        <button class="primary" id="set-save">保存并重建索引</button>
+      </footer>
+    </section>
   </div>
   <script src="app.js"></script>
 </body>
