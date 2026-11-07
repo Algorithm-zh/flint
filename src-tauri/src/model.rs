@@ -6,6 +6,9 @@ pub enum Kind {
     App,
     File,
     Folder,
+    /// A window that is already on screen. Selecting it switches to it instead
+    /// of launching anything.
+    Window,
 }
 
 impl Kind {
@@ -14,14 +17,17 @@ impl Kind {
             Kind::App => "app",
             Kind::File => "file",
             Kind::Folder => "folder",
+            Kind::Window => "window",
         }
     }
 
-    /// Ranking bias. Apps should win ties against files with the same name.
-    /// Files sit below zero on purpose: with thousands of them in the index,
-    /// an equal-scoring file would otherwise crowd out the app the user meant.
+    /// Ranking bias. Windows come first — if something is already running, the
+    /// user almost certainly wants to switch to it instead of starting a
+    /// second copy. Files sit below zero on purpose: with thousands of them in
+    /// the index, an equal-scoring file would crowd out what the user meant.
     pub fn bias(self) -> i64 {
         match self {
+            Kind::Window => 4000,
             Kind::App => 260,
             Kind::Folder => -900,
             Kind::File => -2500,

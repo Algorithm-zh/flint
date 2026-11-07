@@ -124,6 +124,7 @@ function render() {
     const row = document.createElement("div");
     row.className = "row" + (i === sel ? " sel" : "");
     row.dataset.i = String(i);
+    row.dataset.kind = h.kind;
 
     const cached = iconCache.get(h.icon_src);
 

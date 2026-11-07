@@ -233,6 +233,60 @@ impl Index {
     }
 }
 
+/// Search the live window list.
+///
+/// Kept separate from `Index::search` because windows change between summons:
+/// they're enumerated fresh on every show, not baked into the snapshot.
+pub fn search_windows(query: &str, wins: &[crate::windows_list::WinEntry], limit: usize) -> Vec<Hit> {
+    let q = query.trim();
+    if q.is_empty() || wins.is_empty() {
+        return Vec::new();
+    }
+
+    let pattern = Pattern::parse(q, CaseMatching::Smart, Normalization::Smart);
+    let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
+    let mut buf: Vec<char> = Vec::with_capacity(64);
+    let mut buf2: Vec<char> = Vec::with_capacity(64);
+    let mut idxbuf: Vec<u32> = Vec::with_capacity(32);
+
+    let mut scored: Vec<(u32, usize)> = Vec::with_capacity(wins.len());
+    for (i, w) in wins.iter().enumerate() {
+        let hay = Utf32Str::new(&w.title, &mut buf);
+        let mut s = pattern.score(hay, &mut matcher);
+        if s.is_none() && !w.exe.is_empty() {
+            let hay2 = Utf32Str::new(&w.exe, &mut buf2);
+            s = pattern.score(hay2, &mut matcher);
+        }
+        if let Some(s) = s {
+            scored.push((s, i));
+        }
+    }
+
+    scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    scored.truncate(limit);
+
+    scored
+        .into_iter()
+        .map(|(_, i)| {
+            let w = &wins[i];
+            let hay = Utf32Str::new(&w.title, &mut buf);
+            idxbuf.clear();
+            if pattern.indices(hay, &mut matcher, &mut idxbuf).is_none() {
+                idxbuf.clear();
+            }
+            Hit {
+                path: format!("hwnd:{}", w.hwnd),
+                name: w.title.clone(),
+                ext: "WIN".into(),
+                kind: "window",
+                hint: w.exe.clone(),
+                icon_src: w.exe_path.clone(),
+                segs: split_segments(&w.title, &idxbuf),
+            }
+        })
+        .collect()
+}
+
 /// Turn `(name, match positions)` into alternating plain/highlight runs.
 fn split_segments(name: &str, positions: &[u32]) -> Vec<Seg> {
     if positions.is_empty() {

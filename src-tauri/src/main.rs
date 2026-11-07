@@ -16,6 +16,7 @@ mod model;
 mod paths;
 mod platform;
 mod search;
+mod windows_list;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -34,6 +35,8 @@ pub struct AppState {
     idx: RwLock<Arc<search::Index>>,
     freq: RwLock<FxHashMap<String, Freq>>,
     building: AtomicBool,
+    /// Live window list, refreshed every time the palette is summoned.
+    wins: RwLock<Vec<windows_list::WinEntry>>,
     /// Timestamp (ms) of the last time we summoned the palette. Used to ignore
     /// the focus-lost event that Windows fires while the window is still
     /// settling, which would otherwise hide it the instant it appears.
@@ -226,9 +229,17 @@ fn show_palette(app: &AppHandle) {
     let Some(win) = app.get_webview_window("main") else {
         return;
     };
-    app.state::<AppState>()
-        .last_show
-        .store(now_ms(), Ordering::Relaxed);
+    let state = app.state::<AppState>();
+    state.last_show.store(now_ms(), Ordering::Relaxed);
+
+    // Refresh the window list before the UI asks for it. Enumerating is cheap
+    // (a few hundred microseconds) and must happen on every summon anyway —
+    // windows open and close constantly.
+    let self_hwnd = win.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    let live = windows_list::list(self_hwnd);
+    *state.wins.write() = live;
+    drop(state);
+
     // The UI resets itself on blur, while it is still hidden, so by the time we
     // show the window there is nothing left to paint but the answer.
     let _ = win.show();
@@ -257,14 +268,39 @@ fn toggle_palette(app: &AppHandle) {
 /* ------------------------------------------------------------------ */
 
 #[tauri::command]
-async fn search(state: State<'_, AppState>, q: String, limit: Option<usize>) -> Result<Vec<Hit>, String> {
-    let idx = state.idx.read().clone();
+async fn search(
+    state: State<'_, AppState>,
+    q: String,
+    limit: Option<usize>,
+) -> Result<Vec<Hit>, String> {
     let lim = limit.unwrap_or(40).clamp(1, 200);
-    Ok(idx.search(&q, lim))
+    let idx = state.idx.read().clone();
+    let wins = state.wins.read().clone();
+
+    let mut out: Vec<Hit> = Vec::with_capacity(lim);
+
+    // Live windows first: switching beats relaunching.
+    if !q.trim().is_empty() {
+        out.extend(search::search_windows(&q, &wins, 6));
+    }
+
+    let remain = lim.saturating_sub(out.len()).max(1);
+    out.extend(idx.search(&q, remain));
+    Ok(out)
 }
 
 #[tauri::command]
 async fn launch(app: AppHandle, path: String) -> Result<(), String> {
+    // `hwnd:` entries are live windows, not things to execute.
+    if let Some(rest) = path.strip_prefix("hwnd:") {
+        let hwnd: isize = rest.parse().map_err(|_| "无效的窗口句柄".to_string())?;
+        return if windows_list::focus(hwnd) {
+            Ok(())
+        } else {
+            Err("窗口已经不在了".into())
+        };
+    }
+
     let result = launch::open(&path);
     if result.is_ok() {
         let state = app.state::<AppState>();
@@ -275,6 +311,15 @@ async fn launch(app: AppHandle, path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn reveal(path: String) -> Result<(), String> {
+    if let Some(rest) = path.strip_prefix("hwnd:") {
+        // A window has no folder; switching to it is the useful fallback.
+        if let Ok(hwnd) = rest.parse::<isize>() {
+            if windows_list::focus(hwnd) {
+                return Ok(());
+            }
+        }
+        return Err("窗口没有所在文件夹".into());
+    }
     launch::reveal(&path)
 }
 
@@ -368,6 +413,7 @@ fn main() {
         idx: RwLock::new(Arc::new(search::Index::empty())),
         freq: RwLock::new(load_freq()),
         building: AtomicBool::new(false),
+        wins: RwLock::new(Vec::new()),
         last_show: AtomicU64::new(0),
     };
 

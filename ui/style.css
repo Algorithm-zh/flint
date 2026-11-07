@@ -331,6 +331,21 @@ body {
   color: var(--accent);
 }
 
+/* A window that's already open: the badge reads as "live" rather than as a
+   file type, because selecting it switches instead of launching. */
+.row[data-kind="window"] .badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.row[data-kind="window"] .hint {
+  color: var(--fg-mid);
+}
+
+.row[data-kind="window"] .ico {
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}
+
 /* empty state */
 .empty {
   display: flex;
