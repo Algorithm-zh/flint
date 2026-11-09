@@ -136,13 +136,58 @@ fn exe_of(pid: u32) -> Option<(String, String)> {
     }
 }
 
-/// Bring an existing window forward.
+/// Bring an existing window to the front — and above whatever was covering it.
 pub fn focus(hwnd: isize) -> bool {
-    if hwnd == 0 {
-        return false;
+    crate::platform::force_foreground(hwnd)
+}
+
+/// If this entry points at a program that already owns a visible window,
+/// return that window.
+///
+/// Handles both a plain `.exe` and the Start-menu `.lnk` that most entries
+/// actually are: the shortcut has to be resolved to its target first, because
+/// the window's process reports the real executable path.
+pub fn window_for_path(path: &str, wins: &[WinEntry]) -> Option<isize> {
+    let lower = path.to_ascii_lowercase();
+    let target = if lower.ends_with(".lnk") {
+        lnk_target(path)?
+    } else if lower.ends_with(".exe") {
+        path.to_string()
+    } else {
+        return None;
+    };
+
+    wins.iter()
+        .find(|w| !w.exe_path.is_empty() && w.exe_path.eq_ignore_ascii_case(&target))
+        .map(|w| w.hwnd)
+}
+
+/// Resolve a `.lnk` to the executable it launches.
+fn lnk_target(lnk: &str) -> Option<String> {
+    use windows::core::{Interface, PCWSTR};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED, STGM_READ,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+        let file: IPersistFile = link.cast().ok()?;
+
+        let mut wide: Vec<u16> = lnk.encode_utf16().collect();
+        wide.push(0);
+        file.Load(PCWSTR(wide.as_ptr()), STGM_READ).ok()?;
+
+        let mut buf = [0u16; 1024];
+        link.GetPath(&mut buf, std::ptr::null_mut(), 0).ok()?;
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        if len == 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(&buf[..len]))
     }
-    crate::platform::force_foreground(hwnd);
-    true
 }
 
 #[allow(dead_code)]

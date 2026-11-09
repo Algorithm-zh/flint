@@ -9,6 +9,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod demo;
 mod icons;
 mod index;
 mod launch;
@@ -151,6 +152,11 @@ fn cache_store(entries: &[Entry]) {
 }
 
 fn spawn_index_build(app: AppHandle) {
+    // Screenshot mode answers from a fixed list; walking the disk would only
+    // slow the capture down.
+    if demo::enabled() {
+        return;
+    }
     let state = app.state::<AppState>();
     if state.building.swap(true, Ordering::SeqCst) {
         return;
@@ -283,6 +289,9 @@ async fn search(
     limit: Option<usize>,
 ) -> Result<Vec<Hit>, String> {
     let lim = limit.unwrap_or(40).clamp(1, 200);
+    if demo::enabled() {
+        return Ok(demo::hits(&q, lim));
+    }
     let idx = state.idx.read().clone();
     let wins = state.wins.read().clone();
 
@@ -305,14 +314,34 @@ async fn search(
 
 #[tauri::command]
 async fn launch(app: AppHandle, path: String) -> Result<(), String> {
+    // Screenshot mode must not actually start anything.
+    if demo::enabled() {
+        return Ok(());
+    }
     // `hwnd:` entries are live windows, not things to execute.
     if let Some(rest) = path.strip_prefix("hwnd:") {
         let hwnd: isize = rest.parse().map_err(|_| "无效的窗口句柄".to_string())?;
         return if windows_list::focus(hwnd) {
             Ok(())
         } else {
-            Err("窗口已经不在了".into())
+            Err("无法切换到该窗口".into())
         };
+    }
+
+    // Already running with a window on screen? Then "open" means "go there".
+    // Without this, picking an app from the list either starts a second copy
+    // or leaves the existing window buried behind whatever is in front of it.
+    let existing = {
+        let state = app.state::<AppState>();
+        let wins = state.wins.read();
+        windows_list::window_for_path(&path, &wins)
+    };
+    if let Some(hwnd) = existing {
+        if windows_list::focus(hwnd) {
+            let state = app.state::<AppState>();
+            bump(&state, &path);
+            return Ok(());
+        }
     }
 
     let result = launch::open(&path);
@@ -362,6 +391,9 @@ fn reindex(app: AppHandle) -> bool {
 
 #[tauri::command]
 fn stats(state: State<'_, AppState>) -> serde_json::Value {
+    if demo::enabled() {
+        return demo::stats();
+    }
     let idx = state.idx.read();
     let apps = idx
         .entries
@@ -377,11 +409,18 @@ fn stats(state: State<'_, AppState>) -> serde_json::Value {
 
 #[tauri::command]
 fn get_settings() -> paths::Settings {
+    if demo::enabled() {
+        return demo::settings();
+    }
     paths::load_settings()
 }
 
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: paths::Settings) -> bool {
+    // Never let screenshot mode overwrite the real settings file.
+    if demo::enabled() {
+        return true;
+    }
     if !paths::write_settings(&settings) {
         return false;
     }
