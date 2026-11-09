@@ -193,6 +193,7 @@ pub fn settings() -> Settings {
             label: "当前项目".to_string(),
         }],
         keymap: "jk".to_string(),
+        omp_path: String::new(),
     }
 }
 

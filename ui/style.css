@@ -187,6 +187,142 @@ body {
   scrollbar-gutter: stable;
 }
 
+/* ============================================================
+   omp answer
+   The palette has two bodies: the result list, and an answer that
+   streams in. Only one of them is on screen at a time.
+   ============================================================ */
+.answer {
+  position: relative;
+  z-index: 1;
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  padding: 8px 15px 0;
+}
+
+:root[data-view="answer"] .answer {
+  display: flex;
+}
+
+:root[data-view="answer"] .list {
+  display: none;
+}
+
+.ans-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex: 0 0 auto;
+  padding: 2px 1px 9px;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.ans-tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ans-q {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Two lines of context is plenty; the answer is the point. */
+  max-height: 3em;
+  overflow: hidden;
+}
+
+.ans-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 11px 1px 14px;
+  overflow-y: auto;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI",
+    system-ui, sans-serif;
+  font-size: 12.8px;
+  line-height: 1.62;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* The one place in this UI where selecting text is the whole point. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.ans-body::-webkit-scrollbar {
+  width: 9px;
+}
+
+.ans-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ans-body::-webkit-scrollbar-thumb {
+  background: var(--row);
+  border-radius: 9px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.ans-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 7px 1px 8px;
+  border-top: 1px solid var(--hair-soft);
+  font-size: 10.5px;
+  color: var(--fg-dim);
+}
+
+.ans-keys {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Prompt preview shown in the list body while the query starts with `?`. */
+.ask-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 12px;
+  font-size: 12.5px;
+  color: var(--fg-mid);
+}
+
+.ask-hint b {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ask-hint span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .list::-webkit-scrollbar {
   width: 9px;
 }
@@ -505,7 +641,8 @@ kbd {
 /* ============================================================
    Settings view
    ============================================================ */
-:root[data-view="search"] .settings {
+:root[data-view="search"] .settings,
+:root[data-view="answer"] .settings {
   display: none;
 }
 

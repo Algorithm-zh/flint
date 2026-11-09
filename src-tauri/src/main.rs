@@ -14,6 +14,7 @@ mod icons;
 mod index;
 mod launch;
 mod model;
+mod omp;
 mod paths;
 mod platform;
 mod search;
@@ -45,6 +46,9 @@ pub struct AppState {
     /// the focus-lost event that Windows fires while the window is still
     /// settling, which would otherwise hide it the instant it appears.
     last_show: AtomicU64,
+    /// The running `omp -p` child, if any, so a follow-up question or Esc can
+    /// stop it instead of leaving an orphan agent behind.
+    omp_child: std::sync::Mutex<Option<std::process::Child>>,
 }
 
 fn now_ms() -> u64 {
@@ -404,6 +408,89 @@ fn stats(state: State<'_, AppState>) -> serde_json::Value {
 }
 
 /* ------------------------------------------------------------------ */
+/* omp                                                                */
+/* ------------------------------------------------------------------ */
+
+#[derive(serde::Serialize)]
+struct OmpStatus {
+    found: bool,
+    path: String,
+}
+
+#[tauri::command]
+fn omp_status() -> OmpStatus {
+    let settings = paths::load_settings();
+    match omp::locate(&settings.omp_path) {
+        Some(p) => OmpStatus {
+            found: true,
+            path: p.to_string_lossy().to_string(),
+        },
+        None => OmpStatus {
+            found: false,
+            path: String::new(),
+        },
+    }
+}
+
+/// One question, streamed back as `flint:omp-delta` events.
+#[tauri::command]
+fn omp_ask(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    prompt: String,
+    cwd: Option<String>,
+) -> Result<(), String> {
+    let question = prompt.trim();
+    if question.is_empty() {
+        return Err("问题是空的".into());
+    }
+
+    let settings = paths::load_settings();
+    let exe = omp::locate(&settings.omp_path)
+        .ok_or_else(|| "没有找到 omp，请在设置里填可执行文件路径".to_string())?;
+
+    // A previous answer that is still streaming is stale the moment a new
+    // question arrives.
+    if let Some(mut prev) = state.omp_child.lock().unwrap().take() {
+        let _ = prev.kill();
+        let _ = prev.wait();
+    }
+
+    let dir = cwd
+        .filter(|d| !d.trim().is_empty())
+        .or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().to_string()))
+        .ok_or_else(|| "找不到工作目录".to_string())?;
+
+    let child = omp::ask_streaming(app, &exe, question.to_string(), &dir)?;
+    *state.omp_child.lock().unwrap() = Some(child);
+    Ok(())
+}
+
+#[tauri::command]
+fn omp_cancel(state: State<'_, AppState>) {
+    if let Some(mut child) = state.omp_child.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// Hand a folder to a terminal window running the omp TUI.
+#[tauri::command]
+fn omp_open(dir: String) -> Result<(), String> {
+    let settings = paths::load_settings();
+    let exe = omp::locate(&settings.omp_path)
+        .ok_or_else(|| "没有找到 omp，请在设置里填可执行文件路径".to_string())?;
+    let target = if dir.trim().is_empty() {
+        dirs::home_dir()
+            .map(|h| h.to_string_lossy().to_string())
+            .ok_or_else(|| "找不到工作目录".to_string())?
+    } else {
+        dir
+    };
+    omp::open_tui(&exe, &target)
+}
+
+/* ------------------------------------------------------------------ */
 /* settings                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -546,6 +633,7 @@ fn main() {
         wins: RwLock::new(Vec::new()),
         dialog_open: AtomicBool::new(false),
         last_show: AtomicU64::new(0),
+        omp_child: std::sync::Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -579,7 +667,11 @@ fn main() {
             run_as_admin,
             open_terminal,
             get_autostart,
-            set_autostart_cmd
+            set_autostart_cmd,
+            omp_status,
+            omp_ask,
+            omp_cancel,
+            omp_open
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -14,6 +14,9 @@ const $meta = document.getElementById("meta");
 const $frame = document.getElementById("frame");
 const $mode = document.getElementById("mode");
 const $keys = document.getElementById("keys");
+const $answer = document.getElementById("answer");
+const $ansQ = document.getElementById("ans-q");
+const $ansBody = document.getElementById("ans-body");
 
 let hits = [];
 let sel = 0;
@@ -262,6 +265,19 @@ async function loadIcons() {
 
 const COMMANDS = [
   {
+    id: "omp",
+    name: "问 omp",
+    desc: "把问题发给 oh-my-pi，答案显示在这里",
+    keepOpen: true,
+    run: () => startAskPrompt(),
+  },
+  {
+    id: "omp-open",
+    name: "在 omp 中打开",
+    desc: "在家目录开一个 omp 终端会话",
+    run: () => invoke("omp_open", { dir: "" }),
+  },
+  {
     id: "settings",
     name: "设置",
     desc: "索引目录与快捷路径",
@@ -345,6 +361,21 @@ function actionsFor(h) {
       name: "在此处打开终端",
       run: () => invoke("open_terminal", { path: h.path }),
     });
+    out.push({
+      name: "在此处启动 omp",
+      run: () => invoke("omp_open", { dir: h.path }),
+    });
+  }
+
+  if (h.kind === "file" && !virtual) {
+    // omp works on a directory, so a file means "the folder it lives in".
+    const dir = h.path.replace(/[\\/][^\\/]+$/, "");
+    if (dir && dir !== h.path) {
+      out.push({
+        name: "在 omp 中打开所在目录",
+        run: () => invoke("omp_open", { dir }),
+      });
+    }
   }
   return out;
 }
@@ -417,6 +448,124 @@ function renderCommands(raw) {
   meta(list.length ? `${list.length} 个命令` : "没有匹配的命令");
 }
 
+/* ---------- omp ----------
+   `?question` hands the text to oh-my-pi and streams the answer into the
+   palette. Rust owns the process; this side only appends text, batched through
+   requestAnimationFrame so a fast token stream cannot outrun the compositor. */
+let askOpen = false;
+let askBuf = "";
+let askPending = "";
+let askRaf = null;
+let askT0 = 0;
+
+function queueAsk(text) {
+  if (!text) return;
+  askPending += text;
+  if (askRaf) return;
+  askRaf = requestAnimationFrame(() => {
+    askRaf = null;
+    if (!askPending) return;
+    askBuf += askPending;
+    askPending = "";
+    $ansBody.textContent = askBuf;
+    $ansBody.scrollTop = $ansBody.scrollHeight;
+  });
+}
+
+function setAskFinal(text) {
+  askPending = "";
+  if (askRaf) {
+    cancelAnimationFrame(askRaf);
+    askRaf = null;
+  }
+  askBuf = text;
+  $ansBody.textContent = text;
+  $ansBody.scrollTop = $ansBody.scrollHeight;
+}
+
+/** Drop `?` into the box and leave the caret after it. */
+function startAskPrompt() {
+  commandMode = false;
+  setMode("insert", true);
+  $q.value = "?";
+  $q.setSelectionRange(1, 1);
+  $list.replaceChildren();
+  renderAskHint("");
+}
+
+async function askOmp(question) {
+  const q = question.trim();
+  if (!q) return;
+
+  askOpen = true;
+  askBuf = "";
+  askPending = "";
+  askT0 = performance.now();
+
+  $ansQ.textContent = q;
+  $ansBody.textContent = "";
+  document.documentElement.dataset.view = "answer";
+  $keys.innerHTML = `<span><kbd>esc</kbd>取消</span>`;
+  meta("omp 正在思考…");
+
+  // The box must stop accepting characters while the answer is on screen.
+  $q.readOnly = true;
+  $q.blur();
+
+  try {
+    await invoke("omp_ask", { prompt: q });
+  } catch (e) {
+    setAskFinal(String(e));
+    meta("没有发起请求");
+  }
+}
+
+function closeAsk() {
+  if (!askOpen) return;
+  invoke("omp_cancel").catch(() => {});
+  askOpen = false;
+  askBuf = "";
+  askPending = "";
+  document.documentElement.dataset.view = "search";
+  $q.value = "";
+  setMode("normal", true);
+  run("");
+}
+
+/** The `?` prefix is a mode of its own: the list becomes a prompt preview. */
+function renderAskHint(text) {
+  $list.replaceChildren();
+  const box = document.createElement("div");
+  box.className = "ask-hint";
+
+  const label = document.createElement("b");
+  label.textContent = "问 omp";
+
+  const body = document.createElement("span");
+  body.textContent = text || "输入问题，回车发送";
+
+  box.append(label, body);
+  $list.append(box);
+  meta(text ? "回车发送给 omp" : "输入问题后回车");
+}
+
+function handleAskKey(e) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeAsk();
+    return;
+  }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (askBuf.trim()) {
+      invoke("copy_text", { text: askBuf }).catch(() => {});
+      meta("已复制到剪贴板");
+    }
+    return;
+  }
+  // Ctrl+C keeps its native meaning (copy selection).
+}
+
 /* ---------- search ---------- */
 let rafPending = null;
 
@@ -435,6 +584,13 @@ async function run(text) {
   if (raw.startsWith(">")) {
     commandMode = true;
     renderCommands(raw.slice(1).trim());
+    return;
+  }
+
+  // `?` is a question for omp, not a search.
+  if (raw.startsWith("?")) {
+    commandMode = false;
+    renderAskHint(raw.slice(1).trim());
     return;
   }
   commandMode = false;
@@ -763,6 +919,12 @@ $list.addEventListener("mousedown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.isComposing) return;
 
+  // The answer view owns the keyboard while it is up.
+  if (askOpen) {
+    handleAskKey(e);
+    return;
+  }
+
   // Settings view owns the keyboard while it's up; only Esc gets through.
   if (settingsOpen) {
     if (e.key === "Escape") {
@@ -842,10 +1004,16 @@ function handleInsert(e) {
       e.preventDefault();
       move(-1);
       break;
-    case "Enter":
+    case "Enter": {
       e.preventDefault();
+      const ask = $q.value.trim();
+      if (ask.startsWith("?")) {
+        askOmp(ask.slice(1));
+        break;
+      }
       activate(e.ctrlKey || e.metaKey);
       break;
+    }
     case "Escape":
       e.preventDefault();
       // With the Esc keymap, Esc is a mode switch, never a dismissal — so
@@ -961,10 +1129,16 @@ function handleNormal(e) {
       sel = Math.max(0, hits.length - 1);
       paintSelection();
       break;
-    case "Enter":
+    case "Enter": {
       e.preventDefault();
+      const ask = $q.value.trim();
+      if (ask.startsWith("?")) {
+        askOmp(ask.slice(1));
+        break;
+      }
       activate(false);
       break;
+    }
     case "i":
     case "a":
       e.preventDefault();
@@ -1018,6 +1192,9 @@ function reset() {
   actionMode = false;
   actionTarget = null;
   savedHits = null;
+  askOpen = false;
+  askBuf = "";
+  askPending = "";
   document.documentElement.dataset.view = "search";
   $list.replaceChildren();
   replayIntro();
@@ -1034,6 +1211,9 @@ window.addEventListener("blur", () => {
   // The delay lets a transient focus flicker settle before we wipe the query.
   setTimeout(() => {
     if (suppressBlurReset) return;
+    // An answer stays on screen across a focus change: the user may be reading
+    // it while doing something else, and re-summoning should not throw it away.
+    if (askOpen) return;
     if (!document.hasFocus()) reset();
   }, 90);
 });
@@ -1057,8 +1237,37 @@ event.listen("flint:indexed", (e) => {
 /* Fired after the Rust side has re-enumerated the open windows, so the empty
    state can show the desktop as it is now rather than as it was last time. */
 event.listen("flint:summoned", () => {
-  if (settingsOpen || actionMode || commandMode) return;
+  if (settingsOpen || actionMode || commandMode || askOpen) return;
   if (!$q.value.trim()) run("");
+});
+
+/* ---------- omp stream ---------- */
+event.listen("flint:omp-delta", (e) => {
+  if (askOpen) queueAsk(String(e.payload ?? ""));
+});
+
+event.listen("flint:omp-final", (e) => {
+  if (!askOpen) return;
+  const text = String(e.payload ?? "");
+  if (text) setAskFinal(text);
+});
+
+event.listen("flint:omp-error", (e) => {
+  if (!askOpen) return;
+  const text = String(e.payload ?? "").trim();
+  // Only take over the pane when the run produced nothing at all; otherwise
+  // the answer is already on screen and stderr is just noise.
+  if (text && !askBuf.trim()) {
+    setAskFinal(text);
+    meta("omp 报错");
+  }
+});
+
+event.listen("flint:omp-done", () => {
+  if (!askOpen) return;
+  const seconds = ((performance.now() - askT0) / 1000).toFixed(1);
+  meta(askBuf.trim() ? `omp 回答 · ${seconds}s` : "没有拿到回答");
+  $keys.innerHTML = `<span><kbd>↵</kbd>复制</span><span><kbd>esc</kbd>返回</span>`;
 });
 
 event.listen("flint:open-settings", () => {

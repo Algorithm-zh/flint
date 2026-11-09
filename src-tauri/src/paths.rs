@@ -74,6 +74,10 @@ pub struct Settings {
     /// `"jk"` — type j then k quickly; `"esc"` — press Esc.
     #[serde(default = "default_keymap")]
     pub keymap: String,
+    /// Where the omp executable lives. Empty means "search PATH and the usual
+    /// install locations".
+    #[serde(default)]
+    pub omp_path: String,
 }
 
 fn default_keymap() -> String {
@@ -94,6 +98,7 @@ impl Default for Settings {
             max_files: default_budget(),
             sources: Vec::new(),
             keymap: default_keymap(),
+            omp_path: String::new(),
         }
     }
 }
