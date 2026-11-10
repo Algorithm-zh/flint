@@ -93,3 +93,58 @@ pub fn hide_from_switcher(hwnd: isize) {
         SetWindowLongPtrW(h, GWL_EXSTYLE, ex | WS_EX_TOOLWINDOW.0 as isize);
     }
 }
+
+/// Centre the palette on whichever monitor the cursor is on.
+///
+/// The window is borderless and fixed-size, so it cannot be dragged somewhere
+/// and stay there — "appear where the mouse is" is the whole positioning
+/// policy, and it is what multi-monitor users expect from a launcher.
+pub fn center_on_cursor_monitor(hwnd: isize, width: i32, height: i32) {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetCursorPos, SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+
+    if hwnd == 0 {
+        return;
+    }
+
+    unsafe {
+        let mut pt = POINT::default();
+        if GetCursorPos(&mut pt).is_err() {
+            return;
+        }
+
+        let monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        if monitor.is_invalid() {
+            return;
+        }
+
+        let mut info = MONITORINFO {
+            cbSize: core::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return;
+        }
+
+        // rcWork excludes the taskbar, so the palette never lands under it.
+        let work = info.rcWork;
+        let x = work.left + ((work.right - work.left) - width) / 2;
+        let y = work.top + ((work.bottom - work.top) - height) / 2;
+
+        let h = HWND(hwnd as *mut core::ffi::c_void);
+        let _ = SetWindowPos(
+            h,
+            None,
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+}

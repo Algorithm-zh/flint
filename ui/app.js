@@ -366,16 +366,34 @@ function actionsFor(h) {
         name: "在此处启动 omp",
         run: () => invoke("omp_open", { dir: h.path }),
       });
+      out.push({
+        name: "问 omp 这个目录",
+        keepOpen: true,
+        run: () =>
+          askOmp("先看看这个项目的结构，告诉我它是做什么的、该从哪里读起。", h.path),
+      });
     }
   }
 
-  if (h.kind === "file" && !virtual) {
+  if (ompReady && h.kind === "file" && !virtual) {
     // omp works on a directory, so a file means "the folder it lives in".
     const dir = h.path.replace(/[\\/][^\\/]+$/, "");
     if (dir && dir !== h.path) {
       out.push({
         name: "在 omp 中打开所在目录",
         run: () => invoke("omp_open", { dir }),
+      });
+      out.push({
+        name: "问 omp 这个文件",
+        keepOpen: true,
+        run: () => {
+          // A path with spaces needs quoting, or the @reference ends early.
+          const ref = /\s/.test(h.path) ? `@"${h.path}"` : `@${h.path}`;
+          askOmp(
+            `请阅读 ${ref}，说明它是做什么的、关键逻辑在哪、有没有明显问题。`,
+            dir
+          );
+        },
       });
     }
   }
@@ -480,6 +498,18 @@ let askPending = "";
 let askRaf = null;
 let askT0 = 0;
 
+/** omp answers in markdown. Escaping first keeps innerHTML safe, then a few
+ *  substitutions make headings, bold and inline code readable. Anything else is
+ *  left verbatim — a launcher is not a markdown renderer. */
+function fmtAnswer(text) {
+  let out = esc(text);
+  out = out.replace(/^#{1,4}\s+(.+)$/gm, '<span class="ans-h">$1</span>');
+  // Single-line emphasis only: a stray `**` must not swallow the whole answer.
+  out = out.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  out = out.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  return out;
+}
+
 function queueAsk(text) {
   if (!text) return;
   askPending += text;
@@ -489,7 +519,7 @@ function queueAsk(text) {
     if (!askPending) return;
     askBuf += askPending;
     askPending = "";
-    $ansBody.textContent = askBuf;
+    $ansBody.innerHTML = fmtAnswer(askBuf);
     $ansBody.scrollTop = $ansBody.scrollHeight;
   });
 }
@@ -501,7 +531,7 @@ function setAskFinal(text) {
     askRaf = null;
   }
   askBuf = text;
-  $ansBody.textContent = text;
+  $ansBody.innerHTML = fmtAnswer(text);
   $ansBody.scrollTop = $ansBody.scrollHeight;
 }
 
@@ -515,7 +545,7 @@ function startAskPrompt() {
   renderAskHint("");
 }
 
-async function askOmp(question) {
+async function askOmp(question, cwd) {
   const q = question.trim();
   if (!q) return;
 
@@ -539,12 +569,12 @@ async function askOmp(question) {
   $keys.innerHTML = `<span><kbd>esc</kbd>取消</span>`;
   meta("omp 正在思考…");
 
-  // The box must stop accepting characters while the answer is on screen.
-  $q.readOnly = true;
-  $q.blur();
+  // The answer view is not an editing surface: drop back to NORMAL so the
+  // badge and the key hints stop claiming otherwise.
+  setMode("normal", true);
 
   try {
-    await invoke("omp_ask", { prompt: q });
+    await invoke("omp_ask", { prompt: q, cwd: cwd || null });
   } catch (e) {
     setAskFinal(String(e));
     meta("没有发起请求");
@@ -696,6 +726,15 @@ async function activate(revealIt) {
   // Actions from the Tab panel.
   if (h._act) {
     const act = h._act;
+    // Some actions answer inside the palette (asking omp about a file), so they
+    // must not dismiss the window on the way out.
+    if (act.keepOpen) {
+      closeActions();
+      try {
+        act.run();
+      } catch (_) {}
+      return;
+    }
     dismiss();
     setTimeout(() => {
       try {

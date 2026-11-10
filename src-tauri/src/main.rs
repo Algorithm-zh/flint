@@ -256,6 +256,16 @@ fn show_palette(app: &AppHandle) {
 
     // The UI resets itself on blur, while it is still hidden, so by the time we
     // show the window there is nothing left to paint but the answer.
+    //
+    // Position first: on a multi-monitor desk the palette has to come up on the
+    // screen the cursor is on, otherwise summoning it is a glance at the wrong
+    // half of the room.
+    let (dw, dh) = win
+        .outer_size()
+        .map(|s| (s.width as i32, s.height as i32))
+        .unwrap_or((660, 462));
+    platform::center_on_cursor_monitor(self_hwnd, dw, dh);
+
     let _ = win.show();
     let _ = win.unminimize();
     if let Ok(h) = win.hwnd() {
