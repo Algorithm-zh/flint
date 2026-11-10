@@ -165,7 +165,6 @@ fn spawn_index_build(app: AppHandle) {
     if state.building.swap(true, Ordering::SeqCst) {
         return;
     }
-    drop(state);
 
     std::thread::spawn(move || {
         let t0 = std::time::Instant::now();
@@ -252,7 +251,6 @@ fn show_palette(app: &AppHandle) {
     let self_hwnd = win.hwnd().map(|h| h.0 as isize).unwrap_or(0);
     let live = windows_list::list(self_hwnd);
     *state.wins.write() = live;
-    drop(state);
 
     // The UI resets itself on blur, while it is still hidden, so by the time we
     // show the window there is nothing left to paint but the answer.

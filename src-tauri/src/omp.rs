@@ -204,7 +204,7 @@ pub fn ask_streaming(
         std::thread::spawn(move || {
             let reader = BufReader::new(err);
             let mut buf = String::new();
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 if buf.len() < 2000 {
                     buf.push_str(&line);
                     buf.push('\n');

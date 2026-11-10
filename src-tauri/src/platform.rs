@@ -51,10 +51,10 @@ pub fn force_foreground(hwnd: isize) -> bool {
         // sharing it.
         let mut attached: Vec<u32> = Vec::with_capacity(2);
         for tid in [fg_tid, tgt_tid] {
-            if tid != 0 && tid != ctid && !attached.contains(&tid) {
-                if AttachThreadInput(tid, ctid, true).as_bool() {
-                    attached.push(tid);
-                }
+            if tid != 0 && tid != ctid && !attached.contains(&tid)
+                && AttachThreadInput(tid, ctid, true).as_bool()
+            {
+                attached.push(tid);
             }
         }
 

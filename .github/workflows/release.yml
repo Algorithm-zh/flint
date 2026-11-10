@@ -1,0 +1,110 @@
+name: release
+
+# Tagging is the release trigger: push v0.1.0 and a Windows binary lands on the
+# release. The manual trigger exists for re-running a build (a flaky runner, a
+# rebuilt dependency) without inventing a new version.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to rebuild, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve tag
+        id: meta
+        shell: bash
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          if [[ -z "$tag" ]]; then
+            echo "::error::no tag to build"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Cargo's registry and the target dir are the whole build cost; caching
+      # them turns a ~7 minute cold build into ~2 minutes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check the tag matches Cargo.toml
+        shell: bash
+        run: |
+          declared=$(grep -m1 '^version' src-tauri/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          if [[ "$declared" != "${{ steps.meta.outputs.version }}" ]]; then
+            echo "::warning::tag is ${{ steps.meta.outputs.tag }} but Cargo.toml says $declared — the binary will still be published"
+          fi
+
+      - name: Lint
+        working-directory: src-tauri
+        run: cargo clippy --release --locked -- -D warnings
+
+      - name: Build
+        working-directory: src-tauri
+        run: cargo build --release --locked
+
+      - name: Package
+        shell: bash
+        run: |
+          asset="flint-${{ steps.meta.outputs.version }}-windows-x64.exe"
+          cp "src-tauri/target/release/flint.exe" "$asset"
+          sha256sum "$asset" | tee "$asset.sha256"
+          ls -l "$asset"
+
+      # gh rather than a third-party action: it is already on the runner, and
+      # the branch below decides whether to create the release (with generated
+      # notes) or just replace the binary on an existing one, leaving any
+      # hand-written release notes untouched.
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          version="${{ steps.meta.outputs.version }}"
+          asset="flint-${version}-windows-x64.exe"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag exists — replacing the asset"
+            gh release upload "$tag" "$asset" "$asset.sha256" --clobber
+          else
+            echo "creating release $tag"
+            gh release create "$tag" "$asset" "$asset.sha256" \
+              --title "Flint $tag" \
+              --generate-notes
+          fi
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Flint ${{ steps.meta.outputs.version }}"
+            echo ""
+            echo "- asset: \`flint-${{ steps.meta.outputs.version }}-windows-x64.exe\`"
+            echo "- sha256: \`$(cut -d' ' -f1 "flint-${{ steps.meta.outputs.version }}-windows-x64.exe.sha256")\`"
+            echo "- release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.meta.outputs.tag }}"
+          } >> "$GITHUB_STEP_SUMMARY"

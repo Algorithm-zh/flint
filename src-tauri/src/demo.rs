@@ -125,9 +125,7 @@ fn segs_for(name: &str, q: &str) -> Option<Vec<Seg>> {
     }
 
     let lower = name.to_ascii_lowercase();
-    let Some(start) = lower.find(q) else {
-        return None;
-    };
+    let start = lower.find(q)?;
     let end = start + q.len();
 
     let mut out = Vec::with_capacity(3);

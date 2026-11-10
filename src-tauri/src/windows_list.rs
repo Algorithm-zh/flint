@@ -3,8 +3,6 @@
 //! This is what makes Flint more than a launcher: if the thing is already
 //! running, searching for it should take you *there*, not start a second copy.
 
-use std::ffi::c_void;
-
 use serde::Serialize;
 use windows::core::{BOOL, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
@@ -93,10 +91,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         return BOOL(1);
     }
 
-    let (exe, exe_path) = match exe_of(pid) {
-        Some(v) => v,
-        None => (String::new(), String::new()),
-    };
+    let (exe, exe_path) = exe_of(pid).unwrap_or_default();
 
     out.push(WinEntry {
         hwnd: hwnd.0 as isize,
@@ -190,7 +185,3 @@ fn lnk_target(lnk: &str) -> Option<String> {
     }
 }
 
-#[allow(dead_code)]
-fn _assert_handle_send(_: HWND) {
-    let _ = 0 as *mut c_void;
-}
