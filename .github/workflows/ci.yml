@@ -31,6 +31,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # One cache for both workflows: they compile the same lockfile in the
+          # same profile, so a run of one warms the other.
+          shared-key: flint-windows
 
       - name: Clippy
         working-directory: src-tauri
