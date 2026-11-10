@@ -849,6 +849,46 @@ kbd {
   font-weight: 400;
 }
 
+/* omp executable path: one field, plus whether it currently resolves. */
+.orow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-top: 2px;
+}
+
+.oinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 27px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--hair);
+  background: transparent;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 11.5px;
+  outline: none;
+}
+
+.oinput::placeholder {
+  color: var(--fg-dim);
+}
+
+.oinput:focus {
+  border-color: var(--accent);
+}
+
+.ostate {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--fg-dim);
+}
+
+.ostate[data-ok="1"] {
+  color: var(--accent);
+}
+
 .del {
   flex: 0 0 auto;
   width: 21px;

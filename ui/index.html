@@ -62,6 +62,15 @@
         </section>
 
         <section class="grp">
+          <h3>omp<span>oh-my-pi 的可执行文件，留空自动查找</span></h3>
+          <div class="orow">
+            <input class="oinput" id="omp-path" type="text" spellcheck="false"
+                   autocomplete="off" placeholder="留空则自动查找" />
+            <span class="ostate" id="omp-state"></span>
+          </div>
+        </section>
+
+        <section class="grp">
           <h3>索引目录<span>这些目录下的文件会被搜到</span></h3>
           <div class="rows" id="root-rows"></div>
           <button class="add" id="add-root">+ 添加目录</button>

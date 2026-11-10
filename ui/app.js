@@ -265,19 +265,6 @@ async function loadIcons() {
 
 const COMMANDS = [
   {
-    id: "omp",
-    name: "问 omp",
-    desc: "把问题发给 oh-my-pi，答案显示在这里",
-    keepOpen: true,
-    run: () => startAskPrompt(),
-  },
-  {
-    id: "omp-open",
-    name: "在 omp 中打开",
-    desc: "在家目录开一个 omp 终端会话",
-    run: () => invoke("omp_open", { dir: "" }),
-  },
-  {
     id: "settings",
     name: "设置",
     desc: "索引目录与快捷路径",
@@ -305,6 +292,19 @@ const COMMANDS = [
       await invoke("set_autostart_cmd", { enable: next });
       meta(next ? "已设为开机自动启动" : "已取消开机自动启动");
     },
+  },
+  {
+    id: "omp",
+    name: "问 omp",
+    desc: "把问题发给 oh-my-pi，答案显示在这里",
+    keepOpen: true,
+    run: () => startAskPrompt(),
+  },
+  {
+    id: "omp-open",
+    name: "在 omp 中打开",
+    desc: "在家目录开一个 omp 终端会话",
+    run: () => invoke("omp_open", { dir: "" }),
   },
   {
     id: "quit",
@@ -361,10 +361,12 @@ function actionsFor(h) {
       name: "在此处打开终端",
       run: () => invoke("open_terminal", { path: h.path }),
     });
-    out.push({
-      name: "在此处启动 omp",
-      run: () => invoke("omp_open", { dir: h.path }),
-    });
+    if (ompReady) {
+      out.push({
+        name: "在此处启动 omp",
+        run: () => invoke("omp_open", { dir: h.path }),
+      });
+    }
   }
 
   if (h.kind === "file" && !virtual) {
@@ -431,7 +433,9 @@ function closeActions() {
 function renderCommands(raw) {
   const q = raw.toLowerCase();
   const list = COMMANDS.filter(
-    (c) => !q || c.name.toLowerCase().includes(q) || c.id.includes(q)
+    (c) =>
+      (ompReady || !c.id.startsWith("omp")) &&
+      (!q || c.name.toLowerCase().includes(q) || c.id.includes(q))
   );
 
   hits = list.map((c) => ({
@@ -452,6 +456,24 @@ function renderCommands(raw) {
    `?question` hands the text to oh-my-pi and streams the answer into the
    palette. Rust owns the process; this side only appends text, batched through
    requestAnimationFrame so a fast token stream cannot outrun the compositor. */
+/* Whether omp was found. Everything omp-related hides itself when it is not:
+   the launcher has to be fully usable without an agent installed. */
+let ompReady = false;
+let ompProbed = false;
+
+async function refreshOmp() {
+  try {
+    const s = await invoke("omp_status");
+    ompReady = !!s.found;
+    return s;
+  } catch (_) {
+    ompReady = false;
+    return { found: false, path: "" };
+  } finally {
+    ompProbed = true;
+  }
+}
+
 let askOpen = false;
 let askBuf = "";
 let askPending = "";
@@ -496,6 +518,15 @@ function startAskPrompt() {
 async function askOmp(question) {
   const q = question.trim();
   if (!q) return;
+
+  if (!ompReady) {
+    await refreshOmp();
+    if (!ompReady) {
+      meta("没有找到 omp：> 设置 → omp 里填路径");
+      renderAskHint(q);
+      return;
+    }
+  }
 
   askOpen = true;
   askBuf = "";
@@ -542,11 +573,15 @@ function renderAskHint(text) {
   label.textContent = "问 omp";
 
   const body = document.createElement("span");
-  body.textContent = text || "输入问题，回车发送";
+  if (!ompReady) {
+    body.textContent = "没有找到 omp —— 可以到 > 设置 里指定可执行文件路径";
+  } else {
+    body.textContent = text || "输入问题，回车发送";
+  }
 
   box.append(label, body);
   $list.append(box);
-  meta(text ? "回车发送给 omp" : "输入问题后回车");
+  meta(!ompReady ? "omp 不可用" : text ? "回车发送给 omp" : "输入问题后回车");
 }
 
 function handleAskKey(e) {
@@ -692,6 +727,8 @@ const $setSave = document.getElementById("set-save");
 const $setMsg = document.getElementById("set-msg");
 const $setBack = document.getElementById("set-back");
 const $kmSeg = document.getElementById("keymap-seg");
+const $ompPath = document.getElementById("omp-path");
+const $ompState = document.getElementById("omp-state");
 
 let settingsOpen = false;
 let draft = null;
@@ -710,6 +747,7 @@ async function openSettings() {
       sources: [...(s.sources || [])],
       max_files: s.max_files || 120000,
       keymap: s.keymap === "esc" ? "esc" : "jk",
+      omp_path: s.omp_path || "",
     };
     keymap = draft.keymap;
   } catch (_) {
@@ -733,6 +771,13 @@ function renderSettings() {
   for (const b of $kmSeg.querySelectorAll("button")) {
     b.setAttribute("aria-pressed", String(b.dataset.km === draft.keymap));
   }
+
+  $ompPath.value = draft.omp_path || "";
+  refreshOmp().then((s) => {
+    $ompState.textContent = s.found ? "已找到" : "没找到";
+    $ompState.dataset.ok = s.found ? "1" : "0";
+    $ompState.title = s.path || "留空则自动查找";
+  });
 
   $rootRows.replaceChildren();
   draft.roots.forEach((p, i) => {
@@ -858,6 +903,7 @@ $setSave.addEventListener("click", async () => {
         max_files: draft.max_files,
         sources,
         keymap: draft.keymap,
+        omp_path: draft.omp_path.trim(),
       },
     });
   } catch (e) {
@@ -870,13 +916,19 @@ $setSave.addEventListener("click", async () => {
     return;
   }
   setMsg(dropped > 0 ? `已保存（跳过 ${dropped} 条没有关键词）· 重建索引用…` : "已保存，正在重建索引…");
-  // Applies immediately — no restart needed to change how Esc behaves.
+  // Applies immediately — no restart needed to change how Esc behaves, or
+  // whether omp is reachable with the path that was just typed.
   keymap = draft.keymap === "esc" ? "esc" : "jk";
   $keys.innerHTML = keyHints(mode);
+  refreshOmp();
   setTimeout(closeSettings, 700);
 });
 
 $setBack.addEventListener("click", closeSettings);
+
+$ompPath.addEventListener("input", () => {
+  if (draft) draft.omp_path = $ompPath.value;
+});
 
 /* ---------- events ---------- */
 $q.addEventListener("input", () => {
@@ -1323,3 +1375,4 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
   } catch (_) {}
 })();
 reset();
+refreshOmp();
