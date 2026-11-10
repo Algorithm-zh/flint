@@ -1,7 +1,7 @@
 # Flint
 
 [![Release](https://img.shields.io/github/v/release/Algorithm-zh/flint?color=c4f56b)](https://github.com/Algorithm-zh/flint/releases/latest)
-[![Build](https://github.com/Algorithm-zh/flint/actions/workflows/release.yml/badge.svg)](https://github.com/Algorithm-zh/flint/actions/workflows/release.yml)
+[![Build](https://github.com/Algorithm-zh/flint/actions/workflows/ci.yml/badge.svg)](https://github.com/Algorithm-zh/flint/actions/workflows/ci.yml)
 
 一个用 Rust 写的 Windows 启动器：按 `Alt+Space` 召唤，输入几个字母，回车打开。
 
