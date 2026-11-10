@@ -213,7 +213,7 @@ impl Index {
                 .collect();
         }
 
-        ranked.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        ranked.sort_unstable_by_key(|r| std::cmp::Reverse(r.0));
         ranked
             .into_iter()
             .take(limit)
@@ -262,7 +262,7 @@ pub fn search_windows(query: &str, wins: &[crate::windows_list::WinEntry], limit
         }
     }
 
-    scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_unstable_by_key(|r| std::cmp::Reverse(r.0));
     scored.truncate(limit);
 
     scored
