@@ -1,5 +1,7 @@
 # Flint
 
+[![Release](https://img.shields.io/github/v/release/Algorithm-zh/flint?color=c4f56b)](https://github.com/Algorithm-zh/flint/releases/latest)
+
 一个用 Rust 写的 Windows 启动器：按 `Alt+Space` 召唤，输入几个字母，回车打开。
 
 目标很单纯——**快到没有存在感**。没有动画等待，没有"正在加载"，没有满屏的托盘图标。
@@ -10,13 +12,28 @@
 
 ---
 
-## 直接运行
+## 下载
 
-`src-tauri/target/release/flint.exe`（6 MB 左右，单文件，无需安装）
+**[最新版 →](https://github.com/Algorithm-zh/flint/releases/latest)** · Windows 10 / 11 x64 · 6 MB 单文件，免安装
 
-双击后它缩到托盘，按 `Alt+Space` 召唤。多显示器上，它会出现在**鼠标所在的那块屏幕**，而不是永远守着主屏。
+双击后它缩到托盘，按 `Alt+Space` 召唤。多显示器上，它会出现在**鼠标所在的那块屏幕**，而不是永远守着主屏。第一次运行会建文件索引（几秒），之后从缓存秒开。
 
-不依赖任何运行时，也不需要配置。装了 [oh-my-pi](https://github.com/can1357/oh-my-pi) 的话，`?` 可以直接在面板里问它；没装就少这一项，其余功能一个不少。
+需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)——Win11 自带，Win10 通常已随 Edge 安装。程序未签名，首次运行 SmartScreen 会提示「未知发布者」：更多信息 → 仍要运行。
+
+装了 [oh-my-pi](https://github.com/can1357/oh-my-pi) 的话，`?` 可以直接在面板里问它；没装就少这一项，其余功能一个不少。
+
+<details>
+<summary>从源码构建</summary>
+
+```sh
+cd src-tauri
+cargo build --release
+# 产物：src-tauri/target/release/flint.exe
+```
+
+需要 Rust 工具链和 WebView2 运行时。
+
+</details>
 
 ---
 
