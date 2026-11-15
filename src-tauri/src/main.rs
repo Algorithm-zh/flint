@@ -14,6 +14,7 @@ mod icons;
 mod index;
 mod launch;
 mod model;
+mod nvim;
 mod omp;
 mod paths;
 mod platform;
@@ -499,6 +500,43 @@ fn omp_open(dir: String) -> Result<(), String> {
 }
 
 /* ------------------------------------------------------------------ */
+/* neovim                                                             */
+/* ------------------------------------------------------------------ */
+
+#[derive(serde::Serialize)]
+struct NvimStatus {
+    found: bool,
+    path: String,
+}
+
+#[tauri::command]
+fn nvim_status() -> NvimStatus {
+    match nvim::locate() {
+        Some(p) => NvimStatus {
+            found: true,
+            path: p.to_string_lossy().to_string(),
+        },
+        None => NvimStatus {
+            found: false,
+            path: String::new(),
+        },
+    }
+}
+
+#[tauri::command]
+fn nvim_open(path: String) -> Result<(), String> {
+    nvim::locate().ok_or_else(|| "没有找到 Neovim".to_string())?;
+    let target = if path.trim().is_empty() {
+        dirs::home_dir()
+            .map(|h| h.to_string_lossy().to_string())
+            .ok_or_else(|| "找不到工作目录".to_string())?
+    } else {
+        path
+    };
+    nvim::open(&target)
+}
+
+/* ------------------------------------------------------------------ */
 /* settings                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -679,7 +717,9 @@ fn main() {
             omp_status,
             omp_ask,
             omp_cancel,
-            omp_open
+            omp_open,
+            nvim_status,
+            nvim_open
         ])
         .setup(|app| {
             let handle = app.handle().clone();

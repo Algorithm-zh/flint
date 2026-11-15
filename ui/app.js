@@ -294,6 +294,12 @@ const COMMANDS = [
     },
   },
   {
+    id: "nvim",
+    name: "打开 Neovim",
+    desc: "在家目录启动编辑器",
+    run: () => invoke("nvim_open", { path: "" }),
+  },
+  {
     id: "omp",
     name: "问 omp",
     desc: "把问题发给 oh-my-pi，答案显示在这里",
@@ -361,6 +367,12 @@ function actionsFor(h) {
       name: "在此处打开终端",
       run: () => invoke("open_terminal", { path: h.path }),
     });
+    if (nvimReady) {
+      out.push({
+        name: "在 Neovim 中打开",
+        run: () => invoke("nvim_open", { path: h.path }),
+      });
+    }
     if (ompReady) {
       out.push({
         name: "在此处启动 omp",
@@ -373,6 +385,13 @@ function actionsFor(h) {
           askOmp("先看看这个项目的结构，告诉我它是做什么的、该从哪里读起。", h.path),
       });
     }
+  }
+
+  if (nvimReady && h.kind === "file" && !virtual) {
+    out.push({
+      name: "在 Neovim 中打开",
+      run: () => invoke("nvim_open", { path: h.path }),
+    });
   }
 
   if (ompReady && h.kind === "file" && !virtual) {
@@ -478,6 +497,18 @@ function renderCommands(raw) {
    the launcher has to be fully usable without an agent installed. */
 let ompReady = false;
 let ompProbed = false;
+
+/* neovim: same deal, the palette stays useful without an editor installed. */
+let nvimReady = false;
+
+async function refreshNvim() {
+  try {
+    const s = await invoke("nvim_status");
+    nvimReady = !!s.found;
+  } catch (_) {
+    nvimReady = false;
+  }
+}
 
 async function refreshOmp() {
   try {
@@ -1415,3 +1446,4 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 })();
 reset();
 refreshOmp();
+refreshNvim();
