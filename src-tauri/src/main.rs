@@ -507,18 +507,24 @@ fn omp_open(dir: String) -> Result<(), String> {
 struct NvimStatus {
     found: bool,
     path: String,
+    /// Neovide is the same Neovim in its own window. The palette says so
+    /// rather than promising a terminal that is not going to appear.
+    gui: bool,
 }
 
 #[tauri::command]
 fn nvim_status() -> NvimStatus {
+    let gui = nvim::locate_gui().is_some();
     match nvim::locate() {
         Some(p) => NvimStatus {
             found: true,
             path: p.to_string_lossy().to_string(),
+            gui,
         },
         None => NvimStatus {
             found: false,
             path: String::new(),
+            gui: false,
         },
     }
 }

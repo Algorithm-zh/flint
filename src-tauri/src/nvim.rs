@@ -31,7 +31,7 @@ pub fn locate() -> Option<PathBuf> {
 /// editor: it draws its own window (no terminal padding frame), renders the
 /// cursor itself (guicursor needs no escape codes), and still runs the exact
 /// same config.
-fn locate_gui() -> Option<PathBuf> {
+pub fn locate_gui() -> Option<PathBuf> {
     crate::platform::on_path("neovide.exe")
 }
 

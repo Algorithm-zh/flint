@@ -369,7 +369,7 @@ function actionsFor(h) {
     });
     if (nvimReady) {
       out.push({
-        name: "在 Neovim 中打开",
+        name: nvimActionLabel(),
         run: () => invoke("nvim_open", { path: h.path }),
       });
     }
@@ -389,7 +389,7 @@ function actionsFor(h) {
 
   if (nvimReady && h.kind === "file" && !virtual) {
     out.push({
-      name: "在 Neovim 中打开",
+      name: nvimActionLabel(),
       run: () => invoke("nvim_open", { path: h.path }),
     });
   }
@@ -498,15 +498,28 @@ function renderCommands(raw) {
 let ompReady = false;
 let ompProbed = false;
 
-/* neovim: same deal, the palette stays useful without an editor installed. */
+/* neovim: same deal, the palette stays useful without an editor installed.
+   nvimGui says Neovide is there, which changes only the wording — it is the
+   same editor, in its own window instead of a terminal. */
 let nvimReady = false;
+let nvimGui = false;
+
+function nvimActionLabel() {
+  return nvimGui ? "在 Neovide 中打开" : "在 Neovim 中打开";
+}
 
 async function refreshNvim() {
   try {
     const s = await invoke("nvim_status");
     nvimReady = !!s.found;
+    nvimGui = !!s.gui;
   } catch (_) {
     nvimReady = false;
+    nvimGui = false;
+  }
+  const cmd = COMMANDS.find((c) => c.id === "nvim");
+  if (cmd) {
+    cmd.name = nvimGui ? "打开 Neovide" : "打开 Neovim";
   }
 }
 
