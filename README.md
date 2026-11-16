@@ -72,7 +72,7 @@ cargo build --release
 | 打开所在位置 | 资源管理器里选中该文件 |
 | 复制路径 | 完整路径进剪贴板 |
 | 以管理员身份运行 | 走 `runas`，可执行文件才有 |
-| 在此处打开终端 | 优先 Windows Terminal，没有则退回 cmd |
+| 在此处打开终端 | 优先 WezTerm，其次 Windows Terminal，最后退回 cmd |
 | 切换到此窗口 | 对已打开的窗口条目 |
 
 `j`/`k` 选择，`Enter` 执行，`Esc` 返回搜索。
@@ -151,9 +151,19 @@ cargo build --release
 
 不用先复制路径、再切窗口、再粘进去。你在启动器里已经找到它了，问题就该接着问。
 
-**在项目里开工**：搜到项目文件夹，`Tab` → **在此处启动 omp**，会开一个 Windows Terminal，在那个目录里起 omp 的 TUI。
+**在项目里开工**：搜到项目文件夹，`Tab` → **在此处启动 omp**，会在终端里那个目录起 omp 的 TUI。
 
 **命令模式里也能进**：`>` → 问 omp / 在 omp 中打开。
+
+### 用哪个终端
+
+Flint 自己不渲染任何东西，打开 nvim / omp 这类需要终端的程序时，按这个顺序挑：
+
+1. **WezTerm**（`wezterm.exe`）—— 推荐的终端，GPU 渲染、无内边距黑框、光标形状支持完整
+2. **Windows Terminal**（`wt.exe`）
+3. 普通 `cmd` 窗口（前两者都没有时）
+
+装好 WezTerm 就自动用上，不用改配置。
 
 ### 和 Neovim 一起用
 
@@ -205,6 +215,7 @@ cargo build --release
 | `jsq` | 计算器 / UU加速器 / 资源监视器（首字母） |
 | `vscode` | Visual Studio Code（内置别名） |
 | `vsc` | Visual Studio Code（词首缩写，通用规则） |
+| `wezterm` | WezTerm（首选） |
 | `wt` | Windows Terminal |
 
 排序上应用永远压过文件——搜 `vscode` 不会给你一堆名字里恰好有 v…s…c…o…d…e 的图片。

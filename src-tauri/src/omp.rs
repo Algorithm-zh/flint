@@ -225,38 +225,8 @@ pub fn ask_streaming(
 
 /// Open a terminal in `dir` running the omp TUI.
 pub fn open_tui(exe: &Path, dir: &str) -> Result<(), String> {
-    // Windows Terminal keeps the TUI inside a proper console; the cmd fallback
-    // covers machines where wt.exe is not installed.
-    let mut wt = Command::new("wt.exe");
-    wt.arg("-d").arg(dir).arg(exe).arg("--cwd").arg(dir);
-    wt.arg("--allow-home");
-    detach(&mut wt);
-    if wt.spawn().is_ok() {
-        return Ok(());
-    }
-
-    let mut fallback = Command::new("cmd.exe");
-    fallback
-        .arg("/c")
-        .arg("start")
-        .arg("")
-        .arg("/D")
-        .arg(dir)
-        .arg(exe)
-        .arg("--cwd")
-        .arg(dir)
-        .arg("--allow-home");
-    detach(&mut fallback);
-    fallback
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("打开终端失败：{e}"))
-}
-
-fn detach(cmd: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
+    // Whatever terminal the user actually has: WezTerm, Windows Terminal, or a
+    // bare console. Same path the Neovim hand-off takes.
+    let exe = exe.to_string_lossy().to_string();
+    crate::platform::spawn_in_terminal(dir, &exe, &["--cwd", dir, "--allow-home"])
 }

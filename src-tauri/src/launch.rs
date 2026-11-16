@@ -91,27 +91,5 @@ pub fn run_as_admin(path: &str) -> Result<(), String> {
 /// Open a shell already sitting in `dir`. Prefers Windows Terminal when it's
 /// installed, falls back to a plain console.
 pub fn open_terminal(dir: &str) -> Result<(), String> {
-    let mut cmd = std::process::Command::new("wt.exe");
-    cmd.args(["-d", dir]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    if cmd.spawn().is_ok() {
-        return Ok(());
-    }
-
-    // No Windows Terminal: hand it to cmd with a working directory.
-    let mut fallback = std::process::Command::new("cmd.exe");
-    fallback.args(["/c", "start", "", "cmd.exe", "/k", "cd", "/d", dir]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        fallback.creation_flags(0x0800_0000);
-    }
-    fallback
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("无法打开终端：{e}"))
+    crate::platform::spawn_in_terminal(dir, "cmd.exe", &[])
 }

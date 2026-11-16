@@ -148,3 +148,97 @@ pub fn center_on_cursor_monitor(hwnd: isize, width: i32, height: i32) {
         );
     }
 }
+
+/* ------------------------------------------------------------------ */
+/* terminals                                                          */
+/* ------------------------------------------------------------------ */
+
+use std::path::PathBuf;
+use std::process::Command;
+
+/// Which terminal emulator to hand a TUI program to.
+enum Terminal {
+    /// `wezterm` (or `wezterm-gui`) — preferred: real GPU rendering, no padding
+    /// frame around the text, proper DECSCUSR support for cursor shape.
+    WezTerm(PathBuf),
+    /// Windows Terminal.
+    Windows,
+    /// Last resort: a plain console window.
+    Cmd,
+}
+
+pub fn on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn terminal() -> Terminal {
+    for name in ["wezterm.exe", "wezterm-gui.exe"] {
+        if let Some(p) = on_path(name) {
+            return Terminal::WezTerm(p);
+        }
+    }
+    if on_path("wt.exe").is_some() {
+        return Terminal::Windows;
+    }
+    Terminal::Cmd
+}
+
+/// Launch `prog` with `args` in a new terminal window rooted at `dir`.
+///
+/// One entry point for every "open this in a terminal" action, so adding a
+/// terminal later is a change in one place instead of three.
+pub fn spawn_in_terminal(dir: &str, prog: &str, args: &[&str]) -> Result<(), String> {
+    match terminal() {
+        Terminal::WezTerm(exe) => {
+            // wezterm start --cwd <dir> -- <prog> <args...>
+            let mut cmd = Command::new(exe);
+            cmd.arg("start")
+                .arg("--cwd")
+                .arg(dir)
+                .arg("--")
+                .arg(prog)
+                .args(args);
+            detach(&mut cmd);
+            cmd.spawn()
+                .map(|_| ())
+                .map_err(|e| format!("WezTerm 启动失败：{e}"))
+        }
+        Terminal::Windows => {
+            let mut cmd = Command::new("wt.exe");
+            cmd.arg("-d").arg(dir).arg(prog).args(args);
+            detach(&mut cmd);
+            cmd.spawn()
+                .map(|_| ())
+                .map_err(|e| format!("Windows Terminal 启动失败：{e}"))
+        }
+        Terminal::Cmd => {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.arg("/c")
+                .arg("start")
+                .arg("")
+                .arg("/D")
+                .arg(dir)
+                .arg(prog)
+                .args(args);
+            detach(&mut cmd);
+            cmd.spawn()
+                .map(|_| ())
+                .map_err(|e| format!("启动终端失败：{e}"))
+        }
+    }
+}
+
+fn detach(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+}

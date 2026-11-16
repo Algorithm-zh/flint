@@ -5,7 +5,6 @@
 //! point — no `cd`, no copying a path.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Where Neovim lands when it was installed by the official installer.
 const KNOWN: &[&str] = &[
@@ -14,7 +13,7 @@ const KNOWN: &[&str] = &[
 ];
 
 pub fn locate() -> Option<PathBuf> {
-    if let Some(p) = on_path("nvim.exe") {
+    if let Some(p) = crate::platform::on_path("nvim.exe") {
         return Some(p);
     }
     for candidate in KNOWN {
@@ -26,16 +25,6 @@ pub fn locate() -> Option<PathBuf> {
     None
 }
 
-fn on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
-}
 
 /// Open `target` in Neovim, in a terminal rooted at the right directory.
 ///
@@ -59,35 +48,7 @@ pub fn open(target: &str) -> Result<(), String> {
         (dir, path.to_string_lossy().to_string())
     };
 
-    // Windows Terminal keeps nvim inside a real console; the cmd fallback covers
-    // machines where wt.exe is missing.
-    let mut wt = Command::new("wt.exe");
-    wt.arg("-d").arg(&dir).arg("nvim").arg(&arg);
-    detach(&mut wt);
-    if wt.spawn().is_ok() {
-        return Ok(());
-    }
-
-    let mut fallback = Command::new("cmd.exe");
-    fallback
-        .arg("/c")
-        .arg("start")
-        .arg("")
-        .arg("/D")
-        .arg(&dir)
-        .arg("nvim")
-        .arg(&arg);
-    detach(&mut fallback);
-    fallback
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("打开终端失败：{e}"))
-}
-
-fn detach(cmd: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
+    // One terminal abstraction for the whole app: WezTerm when present, then
+    // Windows Terminal, then a bare console.
+    crate::platform::spawn_in_terminal(&dir, "nvim", &[&arg])
 }
