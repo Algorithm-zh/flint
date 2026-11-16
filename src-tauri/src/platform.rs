@@ -235,6 +235,20 @@ pub fn spawn_in_terminal(dir: &str, prog: &str, args: &[&str]) -> Result<(), Str
     }
 }
 
+/// Launch a GUI program (Neovide) with `dir` as its working directory.
+///
+/// Unlike the terminal path there is no `--cwd` flag to pass, so the working
+/// directory is set on the process and inherited by the nvim child Neovide
+/// spawns.
+pub fn spawn_gui(dir: &std::path::Path, exe: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    let mut cmd = Command::new(exe);
+    cmd.current_dir(dir).args(args);
+    detach(&mut cmd);
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("启动失败：{e}"))
+}
+
 fn detach(cmd: &mut Command) {
     #[cfg(windows)]
     {

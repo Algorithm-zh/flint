@@ -1,7 +1,7 @@
 //! Neovim hand-off.
 //!
 //! Same shape as the omp integration: Flint never hosts the editor, it finds it
-//! and gives it a terminal. Opening the directory you searched for is the whole
+//! and gives it a window. Opening the directory you searched for is the whole
 //! point — no `cd`, no copying a path.
 
 use std::path::{Path, PathBuf};
@@ -25,8 +25,17 @@ pub fn locate() -> Option<PathBuf> {
     None
 }
 
+/// Neovide, when installed.
+///
+/// It is a GUI front end rather than a terminal, so it is used only for the
+/// editor: it draws its own window (no terminal padding frame), renders the
+/// cursor itself (guicursor needs no escape codes), and still runs the exact
+/// same config.
+fn locate_gui() -> Option<PathBuf> {
+    crate::platform::on_path("neovide.exe")
+}
 
-/// Open `target` in Neovim, in a terminal rooted at the right directory.
+/// Open `target` in Neovim.
 ///
 /// A directory opens as the working directory; a file opens with its folder as
 /// the working directory, so `:e` and LazyVim's pickers start from the project
@@ -48,7 +57,11 @@ pub fn open(target: &str) -> Result<(), String> {
         (dir, path.to_string_lossy().to_string())
     };
 
-    // One terminal abstraction for the whole app: WezTerm when present, then
-    // Windows Terminal, then a bare console.
+    if let Some(gui) = locate_gui() {
+        return crate::platform::spawn_gui(Path::new(&dir), &gui, &[&arg]);
+    }
+
+    // No Neovide: one terminal abstraction for the whole app — WezTerm when
+    // present, then Windows Terminal, then a bare console.
     crate::platform::spawn_in_terminal(&dir, "nvim", &[&arg])
 }

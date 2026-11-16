@@ -157,13 +157,15 @@ cargo build --release
 
 ### 用哪个终端
 
-Flint 自己不渲染任何东西，打开 nvim / omp 这类需要终端的程序时，按这个顺序挑：
+编辑器优先走 GUI：装了 **Neovide**（`neovide.exe`）就直接开它，nvim 的配置原样生效，但没有终端那一层——没有内边距黑框，光标形状由 Neovide 自己画，不依赖终端认不认 `DECSCUSR`。
 
-1. **WezTerm**（`wezterm.exe`）—— 推荐的终端，GPU 渲染、无内边距黑框、光标形状支持完整
+没装 Neovide 就退回终端，按这个顺序挑：
+
+1. **WezTerm**（`wezterm.exe`）—— GPU 渲染、无内边距
 2. **Windows Terminal**（`wt.exe`）
 3. 普通 `cmd` 窗口（前两者都没有时）
 
-装好 WezTerm 就自动用上，不用改配置。
+omp 和「在此处打开终端」只能走终端：那是 TUI 和 shell，Neovide 装不下。
 
 ### 和 Neovim 一起用
 
@@ -215,7 +217,7 @@ Flint 自己不渲染任何东西，打开 nvim / omp 这类需要终端的程�
 | `jsq` | 计算器 / UU加速器 / 资源监视器（首字母） |
 | `vscode` | Visual Studio Code（内置别名） |
 | `vsc` | Visual Studio Code（词首缩写，通用规则） |
-| `wezterm` | WezTerm（首选） |
+| `wezterm` | WezTerm |
 | `wt` | Windows Terminal |
 
 排序上应用永远压过文件——搜 `vscode` 不会给你一堆名字里恰好有 v…s…c…o…d…e 的图片。
