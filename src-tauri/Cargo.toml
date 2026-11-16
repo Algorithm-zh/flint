@@ -1,6 +1,6 @@
 [package]
 name = "flint"
-version = "0.1.0"
+version = "0.1.1"
 description = "Flint - a blazing fast launcher for Windows"
 authors = ["Flint"]
 edition = "2021"
