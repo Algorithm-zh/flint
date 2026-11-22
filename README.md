@@ -72,7 +72,7 @@ cargo build --release
 | 打开所在位置 | 资源管理器里选中该文件 |
 | 复制路径 | 完整路径进剪贴板 |
 | 以管理员身份运行 | 走 `runas`，可执行文件才有 |
-| 在此处打开终端 | 优先 WezTerm，其次 Windows Terminal，最后退回 cmd |
+| 在此处打开终端 | 优先 Pebrel，其次 Windows Terminal，最后退回 cmd |
 | 切换到此窗口 | 对已打开的窗口条目 |
 
 `j`/`k` 选择，`Enter` 执行，`Esc` 返回搜索。
@@ -161,7 +161,7 @@ cargo build --release
 
 没装 Neovide 就退回终端，按这个顺序挑：
 
-1. **WezTerm**（`wezterm.exe`）—— GPU 渲染、无内边距
+1. **Pebrel**（`pebrel.exe`，装在 `%LOCALAPPDATA%\Programs\Pebrel`，不在 PATH 也能找到）
 2. **Windows Terminal**（`wt.exe`）
 3. 普通 `cmd` 窗口（前两者都没有时）
 
@@ -217,7 +217,7 @@ omp 和「在此处打开终端」只能走终端：那是 TUI 和 shell，Neovi
 | `jsq` | 计算器 / UU加速器 / 资源监视器（首字母） |
 | `vscode` | Visual Studio Code（内置别名） |
 | `vsc` | Visual Studio Code（词首缩写，通用规则） |
-| `wezterm` | WezTerm |
+| `pebrel` | Pebrel |
 | `wt` | Windows Terminal |
 
 排序上应用永远压过文件——搜 `vscode` 不会给你一堆名字里恰好有 v…s…c…o…d…e 的图片。

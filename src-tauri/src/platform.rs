@@ -158,10 +158,11 @@ use std::process::Command;
 
 /// Which terminal emulator to hand a TUI program to.
 enum Terminal {
-    /// `wezterm` (or `wezterm-gui`) — preferred: real GPU rendering, no padding
-    /// frame around the text, proper DECSCUSR support for cursor shape.
-    WezTerm(PathBuf),
-    /// Windows Terminal.
+    /// Pebrel — the one installed here. Takes the working directory and the
+    /// command on its own command line, so the TUI lands in the right folder
+    /// without going through a shell first.
+    Pebrel(PathBuf),
+    /// Windows Terminal, for machines where Pebrel is not installed.
     Windows,
     /// Last resort: a plain console window.
     Cmd,
@@ -178,11 +179,23 @@ pub fn on_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Pebrel ships as an installer and does not put itself on PATH, so the
+/// documented install location has to be checked as well.
+fn pebrel() -> Option<PathBuf> {
+    if let Some(p) = on_path("pebrel.exe") {
+        return Some(p);
+    }
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    let candidate = PathBuf::from(local)
+        .join("Programs")
+        .join("Pebrel")
+        .join("pebrel.exe");
+    candidate.is_file().then_some(candidate)
+}
+
 fn terminal() -> Terminal {
-    for name in ["wezterm.exe", "wezterm-gui.exe"] {
-        if let Some(p) = on_path(name) {
-            return Terminal::WezTerm(p);
-        }
+    if let Some(p) = pebrel() {
+        return Terminal::Pebrel(p);
     }
     if on_path("wt.exe").is_some() {
         return Terminal::Windows;
@@ -196,19 +209,19 @@ fn terminal() -> Terminal {
 /// terminal later is a change in one place instead of three.
 pub fn spawn_in_terminal(dir: &str, prog: &str, args: &[&str]) -> Result<(), String> {
     match terminal() {
-        Terminal::WezTerm(exe) => {
-            // wezterm start --cwd <dir> -- <prog> <args...>
+        Terminal::Pebrel(exe) => {
+            // pebrel --working-directory <dir> -e <prog> <args...>
+            // `-e` takes the rest of the command line, so it goes last.
             let mut cmd = Command::new(exe);
-            cmd.arg("start")
-                .arg("--cwd")
+            cmd.arg("--working-directory")
                 .arg(dir)
-                .arg("--")
+                .arg("-e")
                 .arg(prog)
                 .args(args);
             detach(&mut cmd);
             cmd.spawn()
                 .map(|_| ())
-                .map_err(|e| format!("WezTerm 启动失败：{e}"))
+                .map_err(|e| format!("Pebrel 启动失败：{e}"))
         }
         Terminal::Windows => {
             let mut cmd = Command::new("wt.exe");
